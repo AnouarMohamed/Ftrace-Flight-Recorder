@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["image", "http", "config", "tracefs", "modules", "logs"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1},
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+    "http": {
+      "type": "object",
+      "required": ["enabled", "address", "port"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "address": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"
+        },
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "config": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string"}
+    },
+    "tracefs": {"$ref": "#/definitions/hostPath"},
+    "modules": {"$ref": "#/definitions/hostPath"},
+    "logs": {"$ref": "#/definitions/hostPath"}
+  },
+  "definitions": {
+    "hostPath": {
+      "type": "object",
+      "required": ["hostPath"],
+      "properties": {
+        "hostPath": {"type": "string", "pattern": "^/"}
+      }
+    }
+  }
+}

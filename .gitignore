@@ -2,3 +2,4 @@ fdrd
 src/*.o
 *.o
 *.tar.xz
+.build/

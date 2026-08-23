@@ -15,7 +15,18 @@ and similar feedback) are welcome as regular GitHub issues.
 
 ## Security-related information
 
-Security considerations for deployment and known limitations will be documented
-in the project README and man page where applicable. Sample configuration files
-are intended as examples and may not be suitable for production use without
-review.
+FDR controls host-kernel tracefs and normally runs as root. The Kubernetes
+DaemonSet is privileged. Write access to configuration, workload arguments, or
+the container image must therefore be limited to trusted administrators.
+
+The HTTP endpoint has no authentication or TLS and binds to loopback by
+default. Kubernetes manifests bind it to the pod interface for health probes but
+do not create a Service. Do not expose it to an untrusted network without an
+authenticated proxy or equivalent network policy.
+
+Output files are opened without following a final symlink and must be regular
+files. Configuration still selects host paths and tracepoints, so configuration
+files must not be writable by untrusted users.
+
+Review enabled probes for performance and data sensitivity before production
+use. Sample configurations are examples, not universal safe defaults.

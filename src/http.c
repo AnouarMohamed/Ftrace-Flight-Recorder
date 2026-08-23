@@ -1,189 +1,236 @@
 /*
- * http.c - health and Prometheus metrics endpoint
+ * http.c - health, readiness, Prometheus metrics, and parent event loop
  */
 
 #include "fdr.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 static int
-fdr_http_listen(int port)
+fdr_http_listen(const char *address, int port)
 {
-	int fd, on = 1;
+	int fd;
+	int on = 1;
+	int flags;
 	struct sockaddr_in addr;
 
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd < 0) {
-		perror("socket");
+	fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
 		return -1;
-	}
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-
+	(void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	addr.sin_port = htons((uint16_t)port);
-
-	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		/* Fall back to all interfaces if loopback bind fails in some ns. */
-		addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-			perror("bind");
-			close(fd);
-			return -1;
-		}
-	}
-	if (listen(fd, 16) < 0) {
-		perror("listen");
+	if (inet_pton(AF_INET, address, &addr.sin_addr) != 1) {
+		errno = EINVAL;
 		close(fd);
+		return -1;
+	}
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
+	    listen(fd, 32) != 0) {
+		int saved_errno = errno;
+
+		close(fd);
+		errno = saved_errno;
+		return -1;
+	}
+	flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) {
+		int saved_errno = errno;
+
+		close(fd);
+		errno = saved_errno;
 		return -1;
 	}
 	return fd;
 }
 
-static void
-fdr_http_reply(int cfd, int status, const char *ctype, const char *body)
+static int
+fdr_http_reply(int cfd, int status, const char *reason, const char *ctype,
+    const char *body)
 {
-	char hdr[256];
-	size_t blen = strlen(body);
+	char header[512];
+	int length;
 
-	snprintf(hdr, sizeof(hdr),
-	    "HTTP/1.1 %d OK\r\n"
+	length = snprintf(header, sizeof(header),
+	    "HTTP/1.1 %d %s\r\n"
 	    "Content-Type: %s\r\n"
 	    "Content-Length: %zu\r\n"
 	    "Connection: close\r\n"
+	    "X-Content-Type-Options: nosniff\r\n"
 	    "\r\n",
-	    status, ctype, blen);
-	(void)write(cfd, hdr, strlen(hdr));
-	(void)write(cfd, body, blen);
+	    status, reason, ctype, strlen(body));
+	if (length < 0 || (size_t)length >= sizeof(header))
+		return -1;
+	if (fdr_write_all(cfd, header, (size_t)length) != 0 ||
+	    fdr_write_all(cfd, body, strlen(body)) != 0)
+		return -1;
+	return 0;
 }
 
 static void
 fdr_http_handle(int cfd)
 {
-	char req[1024];
+	char request[1024];
+	char method[8];
+	char path[256];
+	char version[16];
 	char body[4096];
+	struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
 	ssize_t n;
-	int healthy;
-	int workers;
+	int alive;
+	int ready;
 
-	n = read(cfd, req, sizeof(req) - 1);
-	if (n <= 0) {
-		close(cfd);
+	(void)setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	(void)setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+	n = read(cfd, request, sizeof(request) - 1);
+	if (n <= 0)
+		return;
+	request[n] = '\0';
+	if (sscanf(request, "%7s %255s %15s", method, path, version) != 3) {
+		(void)fdr_http_reply(cfd, 400, "Bad Request", "text/plain",
+		    "bad request\n");
 		return;
 	}
-	req[n] = '\0';
+	if (strcmp(method, "GET") != 0) {
+		(void)fdr_http_reply(cfd, 405, "Method Not Allowed", "text/plain",
+		    "method not allowed\n");
+		return;
+	}
 
-	fdr_process_reap_children();
-	workers = fdr.num_children;
-	healthy = (fdr.metrics != NULL && fdr.metrics->healthy &&
-	    workers >= 0 && !fdr.want_exit);
+	alive = !fdr.want_exit;
+	ready = alive && fdr.metrics != NULL &&
+	    fdr_metrics_load_int(&fdr.metrics->healthy);
+	if (strcmp(path, "/healthz") == 0) {
+		(void)fdr_http_reply(cfd, alive ? 200 : 503,
+		    alive ? "OK" : "Service Unavailable", "text/plain",
+		    alive ? "ok\n" : "stopping\n");
+	} else if (strcmp(path, "/readyz") == 0) {
+		(void)fdr_http_reply(cfd, ready ? 200 : 503,
+		    ready ? "OK" : "Service Unavailable", "text/plain",
+		    ready ? "ready\n" : "not ready\n");
+	} else if (strcmp(path, "/metrics") == 0) {
+		const struct fdr_metrics *m = fdr.metrics;
 
-	if (strncmp(req, "GET /healthz", 12) == 0 ||
-	    strncmp(req, "GET /readyz", 11) == 0) {
-		if (healthy) {
-			fdr_http_reply(cfd, 200, "text/plain", "ok\n");
-		} else {
-			fdr_http_reply(cfd, 503, "text/plain", "not ready\n");
-		}
-	} else if (strncmp(req, "GET /metrics", 12) == 0) {
-		snprintf(body, sizeof(body),
+		(void)snprintf(body, sizeof(body),
 		    "# HELP fdr_bytes_written_total Bytes written to save files\n"
 		    "# TYPE fdr_bytes_written_total counter\n"
-		    "fdr_bytes_written_total %llu\n"
-		    "# HELP fdr_bytes_dropped_total Bytes dropped (disk/rate limit)\n"
+		    "fdr_bytes_written_total %" PRIu64 "\n"
+		    "# HELP fdr_bytes_dropped_total Bytes dropped to protect storage\n"
 		    "# TYPE fdr_bytes_dropped_total counter\n"
-		    "fdr_bytes_dropped_total %llu\n"
+		    "fdr_bytes_dropped_total %" PRIu64 "\n"
 		    "# HELP fdr_rotations_total Log rotations performed\n"
 		    "# TYPE fdr_rotations_total counter\n"
-		    "fdr_rotations_total %llu\n"
-		    "# HELP fdr_probe_failures_total Missing or failed probes\n"
+		    "fdr_rotations_total %" PRIu64 "\n"
+		    "# HELP fdr_probe_failures_total Probe configuration failures\n"
 		    "# TYPE fdr_probe_failures_total counter\n"
-		    "fdr_probe_failures_total %llu\n"
-		    "# HELP fdr_rate_limit_drops_total Bytes dropped by ratelimit\n"
-		    "# TYPE fdr_rate_limit_drops_total counter\n"
-		    "fdr_rate_limit_drops_total %llu\n"
-		    "# HELP fdr_write_errors_total Write errors\n"
+		    "fdr_probe_failures_total %" PRIu64 "\n"
+		    "# HELP fdr_write_errors_total Log write failures\n"
 		    "# TYPE fdr_write_errors_total counter\n"
-		    "fdr_write_errors_total %llu\n"
-		    "# HELP fdr_reloads_total Config reloads\n"
+		    "fdr_write_errors_total %" PRIu64 "\n"
+		    "# HELP fdr_reloads_total Successful configuration reloads\n"
 		    "# TYPE fdr_reloads_total counter\n"
-		    "fdr_reloads_total %llu\n"
+		    "fdr_reloads_total %" PRIu64 "\n"
 		    "# HELP fdr_instances Configured instances\n"
 		    "# TYPE fdr_instances gauge\n"
 		    "fdr_instances %d\n"
 		    "# HELP fdr_workers_alive Running worker processes\n"
 		    "# TYPE fdr_workers_alive gauge\n"
 		    "fdr_workers_alive %d\n"
-		    "# HELP fdr_healthy 1 if healthy\n"
-		    "# TYPE fdr_healthy gauge\n"
-		    "fdr_healthy %d\n",
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->bytes_written : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->bytes_dropped : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->rotations : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->probe_failures : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->rate_limit_drops : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->write_errors : 0),
-		    (unsigned long long)(fdr.metrics ? fdr.metrics->reloads : 0),
-		    fdr.instance_count,
-		    workers,
-		    healthy ? 1 : 0);
-		fdr_http_reply(cfd, 200, "text/plain; version=0.0.4", body);
+		    "# HELP fdr_ready 1 when all configured probes are healthy\n"
+		    "# TYPE fdr_ready gauge\n"
+		    "fdr_ready %d\n",
+		    m ? fdr_metrics_load_u64(&m->bytes_written) : 0,
+		    m ? fdr_metrics_load_u64(&m->bytes_dropped) : 0,
+		    m ? fdr_metrics_load_u64(&m->rotations) : 0,
+		    m ? fdr_metrics_load_u64(&m->probe_failures) : 0,
+		    m ? fdr_metrics_load_u64(&m->write_errors) : 0,
+		    m ? fdr_metrics_load_u64(&m->reloads) : 0,
+		    m ? fdr_metrics_load_int(&m->instances) : 0,
+		    m ? fdr_metrics_load_int(&m->workers_alive) : 0,
+		    ready ? 1 : 0);
+		(void)fdr_http_reply(cfd, 200, "OK",
+		    "text/plain; version=0.0.4; charset=utf-8", body);
 	} else {
-		fdr_http_reply(cfd, 404, "text/plain", "not found\n");
+		(void)fdr_http_reply(cfd, 404, "Not Found", "text/plain",
+		    "not found\n");
 	}
-	close(cfd);
 }
 
 int
-fdr_http_serve(int port)
+fdr_http_serve(const char *address, int port)
 {
-	int lfd;
+	int listener = -1;
 	struct pollfd pfd;
 
-	lfd = fdr_http_listen(port);
-	if (lfd < 0)
-		return -1;
+	if (port != 0) {
+		listener = fdr_http_listen(address, port);
+		if (listener < 0) {
+			fdr_warn("cannot listen on %s:%d: %s", address, port,
+			    strerror(errno));
+			return FDR_EC_HTTP;
+		}
+		fdr_log("info",
+		    "HTTP endpoints listening on %s:%d (/healthz /readyz /metrics)",
+		    address, port);
+	} else {
+		fdr_log("info", "HTTP endpoints disabled");
+	}
 
-	fdr_log("info", "http listening on port %d (/healthz /readyz /metrics)",
-	    port);
-
-	pfd.fd = lfd;
+	pfd.fd = listener;
 	pfd.events = POLLIN;
-
 	while (!fdr.want_exit) {
-		if (fdr.want_reload) {
+		int poll_rc;
+
+		if (fdr.got_sigchld)
+			fdr_process_reap_children();
+		if (fdr.want_reload && !fdr.want_exit) {
 			fdr.want_reload = 0;
 			if (fdr_process_reload() != 0)
-				fdr_warn("config reload failed; keeping previous workers if any");
+				fdr_warn("configuration reload rejected; current configuration remains active");
 		}
+		if (fdr.want_exit)
+			break;
 
 		pfd.revents = 0;
-		if (poll(&pfd, 1, 500) < 0) {
+		poll_rc = poll(listener >= 0 ? &pfd : NULL,
+		    listener >= 0 ? 1U : 0U, 500);
+		if (poll_rc < 0) {
 			if (errno == EINTR)
 				continue;
-			perror("poll");
+			fdr_warn("HTTP event loop failed: %s", strerror(errno));
+			fdr.exit_status = FDR_EC_HTTP;
 			break;
 		}
+		if (listener >= 0 && (pfd.revents & POLLIN)) {
+			for (;;) {
+				int cfd = accept4(listener, NULL, NULL, SOCK_CLOEXEC);
 
-		fdr_process_reap_children();
-
-		if (pfd.revents & POLLIN) {
-			int cfd = accept(lfd, NULL, NULL);
-
-			if (cfd >= 0)
+				if (cfd < 0) {
+					if (errno != EAGAIN && errno != EWOULDBLOCK &&
+					    errno != EINTR)
+						fdr_warn("HTTP accept failed: %s",
+						    strerror(errno));
+					break;
+				}
 				fdr_http_handle(cfd);
+				close(cfd);
+			}
 		}
 	}
 
-	close(lfd);
-	return 0;
+	if (listener >= 0)
+		close(listener);
+	return fdr.exit_status;
 }

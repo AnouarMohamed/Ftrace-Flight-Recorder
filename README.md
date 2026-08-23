@@ -1,192 +1,179 @@
 # Flight Data Recorder
 
-## Description
+FDR is a small Linux daemon that creates isolated ftrace instances, enables
+configured kernel tracepoints, and optionally persists the event stream. It is
+intended for low-level incident evidence: scheduler, network, filesystem, and
+other kernel events that are useful after a failure.
 
-The flight data recorder (fdr) is a daemon which enables ftrace probes,
-harvests ftrace data and (optionally) writes the data to a file.
+FDR runs as root and the Kubernetes deployment is privileged because tracefs is
+a host-kernel control interface. Treat write access to <code>/etc/fdr.d</code>
+or the Kubernetes ConfigMap as equivalent to administrative access.
 
-The behavior of fdr is defined by configuration files stored in
-```/etc/fdr.d```.  During service startup, fdr will process each file in
-the directory which has the suffix of .conf.  If new config files
-are added to the fdr.d directory, then the service must be restarted
-to recognize the new configuration information.
+## Features
 
-fdr is controlled by ```systemd(8)``` on systems where systemd is
-available.  Error messages from fdr can be viewed via systemctl,
-for example, ```systemctl status -l fdr```.
+- One isolated worker and ftrace instance per configuration file
+- Strict configuration validation without requiring root (<code>fdrd -n</code>)
+- Disk free-space protection that drops trace data before filling the disk
+- Size-based rotation through logrotate, with a preserved <code>.1</code> fallback
+- Safe, transactional configuration reload on SIGHUP
+- Worker supervision: a failed persistent collector stops the parent so the
+  service manager can restart it
+- HTTP liveness, readiness, and Prometheus metrics
+- systemd, OCI image, Kustomize, and Helm deployment support
 
-## Configuration File Syntax
+## Configuration
 
-The following keywords and options are recognized
+FDR reads regular <code>*.conf</code> files directly under
+<code>/etc/fdr.d</code>, in lexical order. Each file defines exactly one
+instance, and its first directive must be <code>instance</code>. Blank lines
+and lines whose first non-space character is <code>#</code> are ignored.
+Inline comments are not supported because probe filters may contain spaces.
 
-### instance iname [buffer-size]
+### instance name [buffer-size]
 
-Create a new ftrace instance called "iname".  This instance
-will appear under the kernel tracing filesystem, typically
-`/sys/kernel/tracing/instances` (or the debugfs path on older kernels).
+Creates an isolated ftrace instance. Names may contain letters, digits,
+<code>.</code>, <code>_</code>, and <code>-</code>.
 
-The optional buffer-size parameter can be used to control
-the size of the ftrace buffers for this instance in the
-kernel.  A suffix of 'k', 'K', 'm', 'M', 'g' or 'G' may be
-used to specify kilobytes, megabytes or gigabytes.
+<code>buffer-size</code> is a byte size and accepts <code>k</code>,
+<code>m</code>, or <code>g</code> suffixes, with optional
+<code>iB</code>/<code>B</code>. FDR converts it to the KiB-per-CPU unit
+required by the kernel's <code>buffer_size_kb</code> interface. Be
+conservative: the allocation is made for every CPU.
 
 ### modprobe module-name
 
-Force the named module to be loaded by fdr.  This can be
-useful when the module is normally loaded on demand and
-the probes cannot be enabled until the module is loaded.
+Loads a required module without invoking a shell.
 
-### enable subsystem-name/probe-name [filter]
+### enable subsystem/event [filter]
 
-Enable an ftrace probe in the specified subsystem.  Both
-the subsystem name and probe name are defined by the kernel.
+Applies the optional ftrace filter first, then enables the event. Use
+<code>subsystem/all</code> to enable a complete subsystem.
 
-The optional filter parameter allows an ftrace filter to
-be set as well.  This will limit the amount of data being
-emitted.  The syntax of the filter language is
-defined by ftrace itself and the parameters are defined
-by the static tracepoint being enabled in the kernel.
+### disable subsystem/event
 
-### enable subsystem-name/all
+Disables an event. <code>subsystem/all</code> disables the complete subsystem.
 
-Enable all ftrace probes for the subsystem.
+### minfree percentage
 
-### disable subsystem-name/probe-name
+Drops incoming trace data while available space on the destination filesystem
+is at or below this percentage. The value must be from 1 through 100 and
+defaults to 5.
 
-Disable an ftrace probe in the specified subsystem.  This
-can be useful to disable selective probes when the "ALL"
-keyword has been used.
+### saveto absolute-path [maximum-size]
 
-### disable subsystem-name/all
+Continuously appends trace output to a regular file created with mode 0600.
+There may be one <code>saveto</code> per instance.
 
-Disable all probes in the specified subsystem.
+Without <code>maximum-size</code>, the file is unlimited except for
+<code>minfree</code>. At the limit, FDR runs
+<code>/usr/sbin/logrotate -f /etc/logrotate.d/&lt;instance&gt;</code> when
+that configuration exists. Otherwise it preserves the previous file as
+<code>&lt;absolute-path&gt;.1</code> and starts a new file. Existing logs are
+never truncated at startup.
 
-### saveto file-name [maxsize]
+Without <code>saveto</code>, FDR configures the instance and the setup worker
+exits successfully. Data can then be consumed manually from:
 
-Save the output of enabled probes to the named file.  If
-the optional maxsize parameter is given, the daemon will
-initiate a log rotation, see [Log Rotation](README.md#log-rotation) below.
-A suffix
-of 'k', 'K', 'm', 'M', 'g' or 'G' may be used to specify
-kilobytes, megabytes or gigabytes.
+~~~text
+/sys/kernel/tracing/instances/<name>/trace_pipe
+~~~
 
-If no saveto directive is present, then fdr will create the
-instance and enable the probes.  In this case, the data
-can be harvested manually by reading:
+Example:
 
-```
-/sys/kernel/tracing/instances/iname/trace_pipe
-```
+~~~text
+instance node 16m
+enable sched/sched_switch
+enable sched/sched_wakeup target_cpu >= 0
+minfree 5
+saveto /var/log/fdr/node.log 64m
+~~~
 
-The ftrace buffers in the kernel are circular. If no
-process harvests the data, new data will overwrite old data.
+## Running on a Linux host
 
-### minfree value
+Requirements are a C11 compiler, GNU Make, tracefs, and optionally
+<code>kmod</code> and <code>logrotate</code>.
 
-Limit the output by the daemon based on free space in the
-file system for the save file.  If free space percentage is
-below the specified value, no output will be written.
+~~~sh
+make check
+sudo make install
+sudo install -m 0644 samples/nfs /etc/fdr.d/nfs.conf
+sudo systemctl enable --now fdr
+~~~
 
-If no minfree directive is present, fdr will use 5% by
-default.
+The systemd service runs in the foreground, restarts on collector failure, and
+binds its HTTP endpoint to <code>127.0.0.1:9119</code>.
 
-## Log Rotation
+Useful commands:
 
-fdr can use ```logrotate(8)``` to manage the output files.  By convention,
-``` /etc/logrotate.d/instance-name ``` controls the behavior of logrotate.
+~~~sh
+fdrd -n -c /etc/fdr.d
+fdrd -f -j
+fdrd -f -a 0.0.0.0 -p 9119
+fdrd -f -p 0
+fdrd -V
+systemctl reload fdr
+~~~
 
-fdr will also invoke logrotate directly at startup and when reaching
-the maxsize limit for the save file.
+Signals:
 
-## See Also
+- SIGHUP to the parent validates and atomically activates current config files.
+  Invalid new configuration is rejected and existing workers stay active.
+- SIGUSR1 to all <code>fdrd</code> processes tells collectors to reopen their
+  log files. The sample logrotate configuration uses this signal.
+- SIGTERM and SIGINT stop workers and remove trace instances.
 
-[trace-cmd](https://lwn.net/Articles/410200/)
+## HTTP endpoints
 
-[ftrace documentation](https://docs.kernel.org/trace/ftrace.html)
+- <code>/healthz</code> — parent event loop is alive
+- <code>/readyz</code> — configured probes and collectors are healthy
+- <code>/metrics</code> — Prometheus text exposition
+
+The default listener is <code>127.0.0.1:9119</code>. Authentication and TLS
+are deliberately out of scope; use a firewall, sidecar, or reverse proxy before
+exposing it outside a trusted network.
 
 ## Kubernetes
 
-FDR runs on each cluster node as a privileged DaemonSet. Two deployment paths
-are provided:
+FDR runs once per node and mounts the host tracefs and
+<code>/var/log/fdr</code>.
 
-| Method | Path |
-|--------|------|
-| Plain manifests + kustomize | [deploy/kubernetes/](deploy/kubernetes/) |
-| Helm chart (node selectors, values) | [deploy/helm/fdr/](deploy/helm/fdr/) |
+~~~sh
+kubectl apply -k deploy/kubernetes
 
-```sh
-# Build locally
-docker build -f deploy/kubernetes/Dockerfile -t fdr:latest .
-kubectl apply -k deploy/kubernetes/
+helm upgrade --install fdr deploy/helm/fdr \
+  --namespace fdr-system --create-namespace
+~~~
 
-# Or Helm
-helm upgrade --install fdr ./deploy/helm/fdr \
-  --namespace fdr-system --create-namespace \
-  --set image.repository=ghcr.io/<owner>/fdr
-```
+See the [Kustomize guide](deploy/kubernetes/README.md) and
+[Helm guide](deploy/helm/fdr/README.md). Both deployments include startup,
+liveness, and readiness probes. Kustomize hashes generated configuration names,
+and Helm annotates the pod template with a configuration checksum, so config
+changes roll the DaemonSet automatically.
 
-Push tagged releases to GHCR via `.github/workflows/publish-image.yml`.
+## Development
 
-## Source layout
+~~~sh
+make check
+make sanitize
+helm lint deploy/helm/fdr
+kubectl kustomize deploy/kubernetes >/dev/null
+~~~
 
-The daemon is split into focused translation units under `src/`:
+The tests use a temporary fake tracefs and never modify the host kernel. A final
+release should also be exercised on a disposable Linux node against the kernel
+versions it intends to support.
 
 | File | Responsibility |
-|------|----------------|
-| `main.c` | CLI, daemon foreground mode |
-| `config.c` | Parse `/etc/fdr.d/*.conf` |
-| `trace.c` | ftrace instances, probes, modules |
-| `harvest.c` | trace_pipe reader, rotation, disk limits |
-| `process.c` | Workers, signals, shutdown |
-| `util.c` | Shared helpers |
-| `fdr.h` | Types and shared API |
-
-This keeps each concern testable and easier to extend (for example, adding
-eBPF or alternate backends later) without a single 800-line file.
-
-## Building & Installing
-
-```sh
-make
-sudo make install
-sudo systemctl enable --now fdr
-```
-
-Requirements: a C compiler (`gcc`), `make`, and `install` from coreutils.
-
-### Development
-
-Validate configuration parsing without root or a running tracefs mount:
-
-```sh
-make check
-```
-
-This runs `fdrd -n`, which parses config files and exits. Use `-c` to point
-at a custom config directory and `-v` for verbose output.
-
-Continuous integration runs the same checks on every push via GitHub Actions.
-
-## Kubernetes
-
-FDR can run on every cluster node as a privileged DaemonSet that mounts host
-tracefs and writes logs to a host directory. See [deploy/kubernetes/README.md](deploy/kubernetes/README.md)
-for manifests, a Dockerfile, and deployment steps.
-
-```sh
-docker build -f deploy/kubernetes/Dockerfile -t fdr:latest .
-kubectl apply -k deploy/kubernetes/
-```
-
-## Contributing
-
-This project welcomes contributions from the community. Before submitting a pull request, please [review our contribution guide](./CONTRIBUTING.md)
-
-## Security
-
-Please consult the [security guide](./SECURITY.md) for our responsible security vulnerability disclosure process
+|---|---|
+| <code>main.c</code> | CLI and lifecycle |
+| <code>config.c</code> | Strict, reloadable configuration |
+| <code>trace.c</code> | Trace instances, modules, probes, filters |
+| <code>harvest.c</code> | Trace consumption, disk limits, rotation |
+| <code>process.c</code> | Workers, signals, supervision, reload |
+| <code>http.c</code> | Health, readiness, metrics, parent event loop |
+| <code>runtime.c</code> | Logging and shared metrics |
+| <code>util.c</code> | Checked strings, sizes, and I/O |
 
 ## License
 
-This repository is licensed under the Universal Permissive
-License (UPL). See [LICENSE.txt](./LICENSE.txt) for the full text.
+Universal Permissive License 1.0; see [LICENSE.txt](LICENSE.txt).

@@ -14,6 +14,8 @@ spec:
       labels:
         app: fdr
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
       # Example: trace workers only (uncomment in an overlay)
       # nodeSelector:
       #   node-role.kubernetes.io/worker: ""
@@ -35,12 +37,40 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - -f
+            - -a
+            - 0.0.0.0
+            - -p
+            - "9119"
             - -d
             - /sys/kernel/tracing
             - -c
             - /etc/fdr.d
           securityContext:
             privileged: true
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+          ports:
+            - name: http
+              containerPort: 9119
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
           resources:
             requests:
               cpu: 50m
@@ -51,19 +81,35 @@ spec:
           volumeMounts:
             - name: tracefs
               mountPath: /sys/kernel/tracing
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
             - name: config
               mountPath: /etc/fdr.d
             - name: logs
               mountPath: /var/log/fdr
+            - name: logrotate-state
+              mountPath: /var/lib/logrotate
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: tracefs
           hostPath:
             path: /sys/kernel/tracing
             type: Directory
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
         - name: config
           configMap:
             name: fdr-config
+            defaultMode: 0440
         - name: logs
           hostPath:
             path: /var/log/fdr
             type: DirectoryOrCreate
+        - name: logrotate-state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

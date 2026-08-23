@@ -1,56 +1,117 @@
 # Licensed under the Universal Permissive License (UPL), Version 1.0.
 # See LICENSE.txt for details.
 
-CFLAGS       ?= -Wall -Wextra -Wpedantic -O2 -g \
-                -Wno-format-truncation -Wno-stringop-truncation
+VERSION      ?= 1.4.0
+CC           ?= cc
+CFLAGS       ?= -O2 -g
 CPPFLAGS     ?= -Isrc
 LDFLAGS      ?=
+LDLIBS       ?=
+WARNFLAGS    ?= -Wall -Wextra -Wpedantic -Wformat=2 -Wshadow \
+                -Wstrict-prototypes
 
-PREFIX       := /usr
-SBINDIR      := $(PREFIX)/sbin
-DATADIR      := $(PREFIX)/share
-MANDIR8      := $(DATADIR)/man/man8
-UNITDIR      := /usr/lib/systemd/system
-INSTALL      := install
+CPPFLAGS     += -D_GNU_SOURCE -DFDR_VERSION=\"$(VERSION)\"
+CSTD         ?= -std=c11
+
+PREFIX       ?= /usr
+SBINDIR      ?= $(PREFIX)/sbin
+DATADIR      ?= $(PREFIX)/share
+MANDIR8      ?= $(DATADIR)/man/man8
+UNITDIR      ?= /usr/lib/systemd/system
+SYSCONFDIR   ?= /etc
+INSTALL      ?= install
 
 SRCS         := src/main.c src/runtime.c src/util.c src/config.c \
-                src/trace.c src/harvest.c src/process.c
+                src/trace.c src/harvest.c src/process.c src/http.c
 OBJS         := $(SRCS:.c=.o)
+BUILD_DIR    := .build
+TEST_BINS    := $(BUILD_DIR)/test_config $(BUILD_DIR)/test_harvest \
+                $(BUILD_DIR)/test_trace
+SANITIZER_CC ?= clang
 
-RPMBUILD_DIR ?= $(HOME)
-LATEST_VERS  ?= 1.3
+RPMBUILD_DIR ?= $(HOME)/rpmbuild
+LATEST_VERS  ?= $(VERSION)
 TEST_CONFIG  ?= tests/fixtures
 
-.PHONY: all clean install uninstall check rpm srpm tarball
+.PHONY: all clean install uninstall check sanitize rpm srpm tarball
 
 all: fdrd
 
 fdrd: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
+	$(CC) $(CSTD) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 src/%.o: src/%.c src/fdr.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -c -o $@ $<
 
-clean:
-	rm -f fdrd $(OBJS)
+$(BUILD_DIR):
+	mkdir -p $@
 
-check: fdrd
+$(BUILD_DIR)/test_config: tests/test_config.c src/runtime.c src/util.c \
+    src/config.c src/fdr.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -o $@ tests/test_config.c \
+	    src/runtime.c src/util.c src/config.c $(LDLIBS)
+
+$(BUILD_DIR)/test_harvest: tests/test_harvest.c src/runtime.c src/util.c \
+    src/harvest.c src/fdr.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -o $@ tests/test_harvest.c \
+	    src/runtime.c src/util.c src/harvest.c $(LDLIBS)
+
+$(BUILD_DIR)/test_trace: tests/test_trace.c src/runtime.c src/util.c \
+    src/trace.c src/fdr.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -o $@ tests/test_trace.c \
+	    src/runtime.c src/util.c src/trace.c $(LDLIBS)
+
+check: fdrd $(TEST_BINS)
 	./fdrd -n -c $(TEST_CONFIG)
 	@if ./fdrd -n -c tests/invalid >/dev/null 2>&1; then \
 		echo "expected invalid config to fail"; exit 1; \
 	fi
+	$(BUILD_DIR)/test_config
+	$(BUILD_DIR)/test_harvest
+	$(BUILD_DIR)/test_trace
+	tests/test_runtime.sh ./fdrd
+
+sanitize: | $(BUILD_DIR)
+	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \
+	    -fsanitize=address,undefined -fno-omit-frame-pointer \
+	    -o $(BUILD_DIR)/fdrd-sanitize $(SRCS)
+	ASAN_OPTIONS=detect_leaks=1 $(BUILD_DIR)/fdrd-sanitize \
+	    -n -c $(TEST_CONFIG)
+	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \
+	    -fsanitize=address,undefined -fno-omit-frame-pointer \
+	    -o $(BUILD_DIR)/test-config-sanitize tests/test_config.c \
+	    src/runtime.c src/util.c src/config.c
+	ASAN_OPTIONS=detect_leaks=1 $(BUILD_DIR)/test-config-sanitize
+	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \
+	    -fsanitize=address,undefined -fno-omit-frame-pointer \
+	    -o $(BUILD_DIR)/test-harvest-sanitize tests/test_harvest.c \
+	    src/runtime.c src/util.c src/harvest.c
+	ASAN_OPTIONS=detect_leaks=1 $(BUILD_DIR)/test-harvest-sanitize
+	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \
+	    -fsanitize=address,undefined -fno-omit-frame-pointer \
+	    -o $(BUILD_DIR)/test-trace-sanitize tests/test_trace.c \
+	    src/runtime.c src/util.c src/trace.c
+	ASAN_OPTIONS=detect_leaks=1 $(BUILD_DIR)/test-trace-sanitize
+	ASAN_OPTIONS=detect_leaks=1 tests/test_runtime.sh \
+	    $(BUILD_DIR)/fdrd-sanitize
+
+clean:
+	rm -f fdrd $(OBJS)
+	rm -rf $(BUILD_DIR)
 
 install: fdrd
-	mkdir -p $(DESTDIR)$(SBINDIR)
-	$(INSTALL) -m 0755 fdrd $(DESTDIR)$(SBINDIR)
-	mkdir -p $(DESTDIR)$(MANDIR8)
+	$(INSTALL) -d $(DESTDIR)$(SBINDIR)
+	$(INSTALL) -m 0755 fdrd $(DESTDIR)$(SBINDIR)/fdrd
+	$(INSTALL) -d $(DESTDIR)$(MANDIR8)
 	$(INSTALL) -m 0644 fdrd.man $(DESTDIR)$(MANDIR8)/fdrd.8
-	mkdir -p $(DESTDIR)$(UNITDIR)
+	$(INSTALL) -d $(DESTDIR)$(UNITDIR)
 	$(INSTALL) -m 0644 fdr.service $(DESTDIR)$(UNITDIR)/fdr.service
-	mkdir -p $(DESTDIR)$(DATADIR)/fdr/samples
+	$(INSTALL) -d $(DESTDIR)$(SYSCONFDIR)/fdr.d
+	$(INSTALL) -d $(DESTDIR)$(DATADIR)/fdr/samples
 	$(INSTALL) -m 0644 README.md $(DESTDIR)$(DATADIR)/fdr/README
-	$(INSTALL) -m 0644 samples/nfs $(DESTDIR)$(DATADIR)/fdr/samples
-	$(INSTALL) -m 0644 samples/nfs.logrotate $(DESTDIR)$(DATADIR)/fdr/samples
+	$(INSTALL) -m 0644 samples/nfs $(DESTDIR)$(DATADIR)/fdr/samples/nfs.conf
+	$(INSTALL) -m 0644 samples/nfs.logrotate \
+	    $(DESTDIR)$(DATADIR)/fdr/samples/nfs.logrotate
 
 uninstall:
 	rm -f $(DESTDIR)$(SBINDIR)/fdrd
@@ -58,23 +119,21 @@ uninstall:
 	rm -f $(DESTDIR)$(UNITDIR)/fdr.service
 	rm -rf $(DESTDIR)$(DATADIR)/fdr
 
-tarball: clean
-	tar --transform "s/^./fdr-$(LATEST_VERS)/" \
-		--xz -cf $(RPMBUILD_DIR)/SOURCES/fdr-$(LATEST_VERS).tar.xz .
-
-release:
-	git tag -f fdr-$(LATEST_VERS)
-	git archive --format=tar --prefix=fdr-$(LATEST_VERS)/ fdr-$(LATEST_VERS) \
-		| ( cd /tmp ; tar xf - )
-	(cd /tmp ; tar cJf $(RPMBUILD_DIR)/SOURCES/fdr-$(LATEST_VERS).tar.xz \
-		fdr-$(LATEST_VERS))
+tarball:
+	mkdir -p $(RPMBUILD_DIR)/SOURCES
+	git archive --format=tar --prefix=fdr-$(LATEST_VERS)/ HEAD \
+	    | xz -T0 > $(RPMBUILD_DIR)/SOURCES/fdr-$(LATEST_VERS).tar.xz
 
 rpm: tarball
-	cp buildrpm/$(LATEST_VERS)/fdr.spec \
-		$(RPMBUILD_DIR)/rpmbuild/SPECS/fdr.spec
-	rpmbuild -bb $(RPMBUILD_DIR)/rpmbuild/SPECS/fdr.spec
+	mkdir -p $(RPMBUILD_DIR)/SPECS
+	$(INSTALL) -m 0644 buildrpm/1.4/fdr.spec \
+	    $(RPMBUILD_DIR)/SPECS/fdr.spec
+	rpmbuild --define "_topdir $(RPMBUILD_DIR)" \
+	    -bb $(RPMBUILD_DIR)/SPECS/fdr.spec
 
 srpm: tarball
-	cp buildrpm/$(LATEST_VERS)/fdr.spec \
-		$(RPMBUILD_DIR)/rpmbuild/SPECS/fdr.spec
-	rpmbuild -bs $(RPMBUILD_DIR)/rpmbuild/SPECS/fdr.spec
+	mkdir -p $(RPMBUILD_DIR)/SPECS
+	$(INSTALL) -m 0644 buildrpm/1.4/fdr.spec \
+	    $(RPMBUILD_DIR)/SPECS/fdr.spec
+	rpmbuild --define "_topdir $(RPMBUILD_DIR)" \
+	    -bs $(RPMBUILD_DIR)/SPECS/fdr.spec

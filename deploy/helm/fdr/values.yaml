@@ -4,13 +4,21 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: ghcr.io/example/fdr
+  repository: ghcr.io/anouarmohamed/fdr-k8s
   tag: latest
   pullPolicy: IfNotPresent
 
-namespace:
-  create: true
-  name: fdr-system
+http:
+  enabled: true
+  address: 0.0.0.0
+  port: 9119
+
+terminationGracePeriodSeconds: 30
+
+securityContext:
+  privileged: true
+  runAsUser: 0
+  readOnlyRootFilesystem: true
 
 # Run on every Linux node by default. Example worker-only selector:
 # nodeSelector:
@@ -37,6 +45,9 @@ resources:
 tracefs:
   hostPath: /sys/kernel/tracing
 
+modules:
+  hostPath: /lib/modules
+
 logs:
   hostPath: /var/log/fdr
 
@@ -45,14 +56,10 @@ config:
     instance node
     enable sched/sched_switch
     enable sched/sched_wakeup
-    saveto /var/log/fdr/node.log 64m
     minfree 5
+    saveto /var/log/fdr/node.log 64m
 
 extraArgs: []
-
-serviceAccount:
-  create: false
-  name: ""
 
 podAnnotations: {}
 podLabels: {}

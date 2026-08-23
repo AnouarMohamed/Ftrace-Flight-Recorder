@@ -1,185 +1,320 @@
 /*
- * harvest.c - trace_pipe reader and log rotation
+ * harvest.c - trace_pipe reader, disk protection, and log rotation
  */
 
 #include "fdr.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 static void
-fdr_sighup_worker(int signo, siginfo_t *info, void *ctx)
+fdr_sighup_worker(int signo)
 {
 	(void)signo;
-	(void)info;
-	(void)ctx;
-
-	if (fdr.verbose > 1)
-		fprintf(stderr, "SIGHUP received\n");
 	fdr.got_sighup = 1;
 }
 
 static int
 fdr_open_log(const char *path)
 {
+	int flags = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
 	int fd;
+	struct stat st;
 
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0400);
+#ifdef O_NOFOLLOW
+	flags |= O_NOFOLLOW;
+#endif
+	fd = open(path, flags, 0600);
 	if (fd < 0) {
-		perror(path);
-		exit(FDR_EC_OPENLOG);
+		fdr_warn("cannot open log %s: %s", path, strerror(errno));
+		return -1;
+	}
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		fdr_warn("log target %s is not a regular file", path);
+		close(fd);
+		errno = EINVAL;
+		return -1;
 	}
 	return fd;
 }
 
 static int
-fdr_throttle(int *counter)
-{
-	return (((*counter)++ % 1000) == 0) ? 0 : 1;
-}
-
-static void
-fdr_rotate_logs(struct fdr_instance *insp)
+fdr_run_logrotate(const struct fdr_instance *insp)
 {
 	struct stat st;
 	char confpath[FDR_PATH_MAX];
 	pid_t pid;
 	int status;
-	char *argv[] = { "logrotate", "-f", confpath, NULL };
 
-	snprintf(confpath, sizeof(confpath), "/etc/logrotate.d/%s", insp->iname);
-	if (fdr.verbose > 1)
-		fprintf(stderr, "looking for %s\n", confpath);
-	if (stat(confpath, &st) != 0)
-		return;
+	if (snprintf(confpath, sizeof(confpath), "/etc/logrotate.d/%s",
+	    insp->iname) >= (int)sizeof(confpath))
+		return 0;
+	if (stat(confpath, &st) != 0 || !S_ISREG(st.st_mode))
+		return 0;
 
 	pid = fork();
+	if (pid < 0) {
+		fdr_warn("cannot fork logrotate: %s", strerror(errno));
+		return -1;
+	}
 	if (pid == 0) {
-		execv("/usr/sbin/logrotate", argv);
-		perror("cannot exec logrotate");
+		pid_t parent = getppid();
+
+		if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || parent == 1 ||
+		    getppid() != parent)
+			_exit(FDR_EC_SYSTEM);
+		execl("/usr/sbin/logrotate", "logrotate", "-f", confpath,
+		    (char *)NULL);
+		fdr_log("error", "cannot execute logrotate: %s", strerror(errno));
 		_exit(FDR_EC_EXEC);
 	}
-	if (pid == -1) {
-		perror("fork");
-		return;
+	do {
+		pid_t waited = waitpid(pid, &status, 0);
+
+		if (waited == pid)
+			break;
+		if (waited < 0 && errno != EINTR) {
+			fdr_warn("cannot wait for logrotate: %s", strerror(errno));
+			return -1;
+		}
+	} while (1);
+
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		fdr_warn("logrotate failed for instance %s", insp->iname);
+		return -1;
 	}
-	if (waitpid(pid, &status, 0) == pid &&
-	    !(WIFEXITED(status) && WEXITSTATUS(status) == 0))
-		fprintf(stderr, "logrotate failed %d\n", status);
+	return 1;
 }
 
-void
-fdr_harvest_run(struct fdr_instance *insp, struct fdr_item *item)
+static int
+fdr_rotate_logs(const struct fdr_instance *insp, const char *path)
+{
+	char backup[FDR_PATH_MAX];
+	struct stat st;
+	int result;
+
+	result = fdr_run_logrotate(insp);
+	if (result > 0)
+		goto rotated;
+
+	if (snprintf(backup, sizeof(backup), "%s.1", path) >=
+	    (int)sizeof(backup)) {
+		fdr_warn("rotation path is too long for %s", path);
+		return -1;
+	}
+	if (stat(path, &st) != 0) {
+		if (errno == ENOENT)
+			return 0;
+		fdr_warn("cannot inspect %s for rotation: %s", path,
+		    strerror(errno));
+		return -1;
+	}
+	if (rename(path, backup) != 0) {
+		fdr_warn("cannot rotate %s to %s: %s", path, backup,
+		    strerror(errno));
+		return -1;
+	}
+
+rotated:
+	if (fdr.metrics != NULL)
+		fdr_metrics_add(&fdr.metrics->rotations, 1);
+	fdr_log("info", "rotated log for instance %s", insp->iname);
+	return 1;
+}
+
+static int
+fdr_reopen_log(int oldfd, const char *path)
+{
+	int newfd = fdr_open_log(path);
+
+	if (newfd < 0)
+		return -1;
+	if (close(oldfd) != 0)
+		fdr_warn("cannot close rotated log %s: %s", path, strerror(errno));
+	return newfd;
+}
+
+static int
+fdr_space_available(int fd, int minfree)
+{
+	struct statvfs vfs;
+	long double pctfree;
+
+	if (fstatvfs(fd, &vfs) != 0) {
+		fdr_warn("cannot inspect log filesystem: %s", strerror(errno));
+		return -1;
+	}
+	if (vfs.f_blocks == 0)
+		return 1;
+	pctfree = ((long double)vfs.f_bavail * 100.0L) /
+	    (long double)vfs.f_blocks;
+	return pctfree > (long double)minfree;
+}
+
+static void
+fdr_count_drop(size_t bytes)
+{
+	if (fdr.metrics != NULL)
+		fdr_metrics_add(&fdr.metrics->bytes_dropped, (uint64_t)bytes);
+}
+
+int
+fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 {
 	char tracepipe[FDR_PATH_MAX];
-	int readfd, writefd, n, blocksize, pctfree, rotated = 0;
 	char *buffer;
+	int readfd = -1;
+	int writefd = -1;
+	int blocksize;
+	int space_ok = 1;
+	unsigned int space_checks = 0;
+	int warned_space = 0;
 	struct stat st;
-	struct statvfs vfs;
 	struct sigaction sa;
-	int warn_size = 0, warn_space = 0, warn_write = 0;
+	int rc = -1;
 
-	if (stat(item->target, &st) == 0 && st.st_size > 0) {
-		if (fdr.verbose)
-			fprintf(stderr, "rotating %s\n", item->target);
-		fdr_rotate_logs(insp);
+	if (fdr_join_path(tracepipe, sizeof(tracepipe), insp->dname,
+	    "trace_pipe") != 0) {
+		fdr_warn("trace pipe path is too long for %s", insp->iname);
+		return -1;
 	}
-
-	snprintf(tracepipe, sizeof(tracepipe), "%s/%s/trace_pipe",
-	    fdr.inst_dir, insp->iname);
-	fprintf(stderr, "saving from %s to %s\n", tracepipe, item->target);
 
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_sigaction = fdr_sighup_worker;
-	if (sigaction(SIGHUP, &sa, NULL))
-		perror("sigaction SIGHUP, continuing");
+	sa.sa_handler = fdr_sighup_worker;
+	sigemptyset(&sa.sa_mask);
+	if (sigaction(SIGHUP, &sa, NULL) != 0 ||
+	    sigaction(SIGUSR1, &sa, NULL) != 0) {
+		fdr_warn("cannot install worker reopen signal handler: %s",
+		    strerror(errno));
+		return -1;
+	}
 
-	readfd = open(tracepipe, O_RDONLY);
+	readfd = open(tracepipe, O_RDONLY | O_CLOEXEC);
 	if (readfd < 0) {
-		perror(tracepipe);
-		exit(FDR_EC_OPENTRACE);
+		fdr_warn("cannot open %s: %s", tracepipe, strerror(errno));
+		return -1;
 	}
 	if (fstat(readfd, &st) != 0) {
-		perror(tracepipe);
-		close(readfd);
-		exit(FDR_EC_FSTAT);
+		fdr_warn("cannot stat %s: %s", tracepipe, strerror(errno));
+		goto out;
 	}
-
-	blocksize = (int)st.st_blksize;
-	if (blocksize <= 0)
+	if (st.st_blksize > 0 && st.st_blksize <= 1024 * 1024)
+		blocksize = (int)st.st_blksize;
+	else
 		blocksize = 4096;
-
 	buffer = malloc((size_t)blocksize);
 	if (buffer == NULL) {
-		perror("malloc");
-		close(readfd);
-		exit(FDR_EC_MALLOC);
+		fdr_warn("cannot allocate trace buffer");
+		goto out;
+	}
+	writefd = fdr_open_log(item->target);
+	if (writefd < 0) {
+		free(buffer);
+		goto out;
 	}
 
-	insp->trace_fd = readfd;
-	writefd = fdr_open_log(item->target);
-
+	fdr_log("info", "saving instance %s to %s", insp->iname, item->target);
 	for (;;) {
-		n = (int)read(readfd, buffer, (size_t)blocksize);
+		ssize_t n;
 
-		if (n == -1 && fdr.got_sighup) {
+		if (fdr.got_sighup) {
+			int newfd;
+
 			fdr.got_sighup = 0;
-			close(writefd);
-			writefd = fdr_open_log(item->target);
+			newfd = fdr_reopen_log(writefd, item->target);
+			if (newfd < 0)
+				break;
+			writefd = newfd;
+			fdr_log("info", "reopened %s after SIGHUP", item->target);
+		}
+
+		n = read(readfd, buffer, (size_t)blocksize);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			fdr_warn("cannot read %s: %s", tracepipe, strerror(errno));
+			break;
+		}
+		if (n == 0) {
+			rc = 0;
+			break;
+		}
+
+		if ((space_checks++ & 0xffU) == 0) {
+			space_ok = fdr_space_available(writefd, insp->minfree);
+			if (space_ok < 0)
+				break;
+			if (!space_ok && !warned_space) {
+				fdr_warn("free space is at or below %d%% for %s; dropping data",
+				    insp->minfree, item->target);
+				warned_space = 1;
+			} else if (space_ok && warned_space) {
+				fdr_log("info", "free space recovered for %s", item->target);
+				warned_space = 0;
+			}
+		}
+		if (!space_ok) {
+			fdr_count_drop((size_t)n);
 			continue;
 		}
-		if (n <= 0)
-			break;
 
-		if (fstat(writefd, &st) == 0) {
-			if (st.st_nlink == 0) {
-				fprintf(stderr, "closing %s\n", item->target);
-				close(writefd);
-				writefd = fdr_open_log(item->target);
-			} else if (st.st_size > insp->maxsize) {
-				if (!fdr_throttle(&warn_size))
-					fprintf(stderr,
-					    "file size for %s exceeded, rotating\n",
-					    item->target);
-				close(writefd);
-				fdr_rotate_logs(insp);
-				writefd = fdr_open_log(item->target);
+		if (insp->maxsize != UINT64_MAX) {
+			uint64_t current_size;
+
+			if (fstat(writefd, &st) != 0 || st.st_size < 0) {
+				fdr_warn("cannot stat %s: %s", item->target,
+				    strerror(errno));
+				break;
 			}
-		}
+			current_size = (uint64_t)st.st_size;
+			if ((uint64_t)n > insp->maxsize) {
+				fdr_warn("trace block exceeds maximum size for %s; dropping",
+				    item->target);
+				fdr_count_drop((size_t)n);
+				continue;
+			}
+			if (current_size > insp->maxsize - (uint64_t)n) {
+				int newfd;
 
-		if (fstatvfs(writefd, &vfs) == 0) {
-			pctfree = (int)((vfs.f_bavail * 100) / vfs.f_blocks);
-			if (pctfree <= insp->minfree) {
-				if (!fdr_throttle(&warn_space))
-					fprintf(stderr,
-					    "free space too low for %s\n",
-					    item->target);
-				if (rotated == 0) {
-					close(writefd);
-					fdr_rotate_logs(insp);
-					writefd = fdr_open_log(item->target);
-					rotated = 1;
+				if (fdr_rotate_logs(insp, item->target) < 0) {
+					fdr_count_drop((size_t)n);
+					continue;
 				}
-			} else {
-				rotated = 0;
+				newfd = fdr_reopen_log(writefd, item->target);
+				if (newfd < 0)
+					break;
+				writefd = newfd;
 			}
 		}
 
-		if (write(writefd, buffer, (size_t)n) != n &&
-		    !fdr_throttle(&warn_write))
-			perror(item->target);
+		if (fdr_write_all(writefd, buffer, (size_t)n) != 0) {
+			fdr_warn("cannot write %s: %s", item->target, strerror(errno));
+			if (fdr.metrics != NULL)
+				fdr_metrics_add(&fdr.metrics->write_errors, 1);
+			fdr_count_drop((size_t)n);
+			break;
+		}
+		if (fdr.metrics != NULL)
+			fdr_metrics_add(&fdr.metrics->bytes_written, (uint64_t)n);
 	}
 
-	close(writefd);
-	close(readfd);
+	if (rc != 0 && fdr.metrics != NULL)
+		fdr_metrics_store_int(&fdr.metrics->healthy, 0);
+	if (close(writefd) != 0)
+		fdr_warn("cannot close %s: %s", item->target, strerror(errno));
 	free(buffer);
-	insp->trace_fd = -1;
+out:
+	if (readfd >= 0)
+		close(readfd);
+	return rc;
 }

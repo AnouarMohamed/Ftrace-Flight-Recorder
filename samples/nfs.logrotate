@@ -5,7 +5,8 @@
 	rotate 4
 	maxsize 128k
 	nodateext
+	sharedscripts
 	postrotate
-		pkill -x -HUP fdrd
+		systemctl kill --kill-who=all -s SIGUSR1 fdr.service >/dev/null 2>&1 || true
 	endscript
 }

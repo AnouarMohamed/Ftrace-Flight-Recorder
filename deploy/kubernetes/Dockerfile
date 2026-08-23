@@ -1,12 +1,20 @@
-FROM fedora:43 AS build
-RUN dnf install -y gcc make && dnf clean all
+FROM alpine:3.23 AS build
+RUN apk add --no-cache build-base curl
 WORKDIR /src
 COPY Makefile ./
 COPY src ./src
-RUN make
+COPY tests ./tests
+RUN make check \
+    && make clean \
+    && make
 
-FROM fedora:43
-RUN dnf install -y logrotate kmod && dnf clean all
+FROM alpine:3.23
+RUN apk add --no-cache curl kmod logrotate \
+    && install -d -m 0755 /etc/fdr.d /var/lib/logrotate /var/log/fdr
 COPY --from=build /src/fdrd /usr/sbin/fdrd
+EXPOSE 9119
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:9119/healthz >/dev/null || exit 1
 ENTRYPOINT ["/usr/sbin/fdrd"]
-CMD ["-f", "-d", "/sys/kernel/tracing"]
+CMD ["-f", "-a", "0.0.0.0", "-p", "9119", "-d", "/sys/kernel/tracing"]

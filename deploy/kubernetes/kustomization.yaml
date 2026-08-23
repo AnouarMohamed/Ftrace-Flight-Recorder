@@ -3,10 +3,14 @@ kind: Kustomization
 namespace: fdr-system
 resources:
   - namespace.yaml
-  - configmap.yaml
   - daemonset.yaml
+
+configMapGenerator:
+  - name: fdr-config
+    files:
+      - node.conf=fdr.conf
 
 images:
   - name: fdr
-    newName: fdr
+    newName: ghcr.io/anouarmohamed/fdr-k8s
     newTag: latest

@@ -5,12 +5,19 @@ After=local-fs.target
 ConditionPathExists=/etc/fdr.d
 
 [Service]
-Type=forking
-ExecStart=/usr/sbin/fdrd
+Type=simple
+ExecStart=/usr/sbin/fdrd -f -a 127.0.0.1 -p 9119
+ExecReload=/bin/kill -HUP $MAINPID
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
 RestartSec=5
+KillMode=control-group
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
 
 [Install]
 WantedBy=multi-user.target

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: {{ include "fdr.fullname" . }}
-  namespace: {{ .Values.namespace.name }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "fdr.labels" . | nindent 4 }}
 spec:
@@ -20,11 +20,14 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . | quote }}
       {{- end }}
@@ -46,6 +49,15 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - -f
+            {{- if .Values.http.enabled }}
+            - -a
+            - {{ .Values.http.address | quote }}
+            - -p
+            - {{ .Values.http.port | quote }}
+            {{- else }}
+            - -p
+            - "0"
+            {{- end }}
             - -d
             - /sys/kernel/tracing
             - -c
@@ -54,25 +66,65 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           securityContext:
-            privileged: true
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.http.enabled }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.http.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: tracefs
               mountPath: /sys/kernel/tracing
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
             - name: config
               mountPath: /etc/fdr.d
             - name: logs
               mountPath: /var/log/fdr
+            - name: logrotate-state
+              mountPath: /var/lib/logrotate
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: tracefs
           hostPath:
             path: {{ .Values.tracefs.hostPath }}
             type: Directory
+        - name: modules
+          hostPath:
+            path: {{ .Values.modules.hostPath }}
+            type: Directory
         - name: config
           configMap:
             name: {{ include "fdr.fullname" . }}-config
+            defaultMode: 0440
         - name: logs
           hostPath:
             path: {{ .Values.logs.hostPath }}
             type: DirectoryOrCreate
+        - name: logrotate-state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

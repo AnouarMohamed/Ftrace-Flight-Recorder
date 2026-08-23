@@ -6,23 +6,23 @@
 # Source function library.
 . /etc/rc.d/init.d/functions
 
-uid=`id | cut -d\( -f1 | cut -d= -f2`
+uid=$(id -u)
 
 case "$1" in
   start)
 	[ -x /usr/sbin/fdrd ] || exit 5
 
 	# Only root can start the service
-	[ $uid -ne 0 ] && exit 4
+	[ "$uid" -ne 0 ] && exit 4
 
 	# Prefer tracefs; fall back to debugfs on older systems.
-	tpath=`grep tracefs /etc/mtab 2>/dev/null | awk '{ print $2 }'`
+	tpath=$(awk '$3 == "tracefs" { print $2; exit }' /proc/mounts)
 	if [ -z "$tpath" ]; then
-		tpath=`grep debugfs /etc/mtab 2>/dev/null | awk '{ print $2 }'`
+		tpath=$(awk '$3 == "debugfs" { print $2; exit }' /proc/mounts)
 		[ -n "$tpath" ] && tpath="$tpath/tracing"
 	fi
 	[ -z "$tpath" ] && mount -t tracefs nodev /sys/kernel/tracing 2>/dev/null
-	tpath=`grep tracefs /etc/mtab 2>/dev/null | awk '{ print $2 }'`
+	tpath=$(awk '$3 == "tracefs" { print $2; exit }' /proc/mounts)
 	[ -z "$tpath" ] && exit 5
 
 	action $"Starting fdr services "
@@ -32,7 +32,7 @@ case "$1" in
 	;;
   stop)
 	# Only root can stop the service
-	[ $uid -ne 0 ] && exit 4
+	[ "$uid" -ne 0 ] && exit 4
 
 	# Stop daemons.
 	echo -n $"Shutting down fdr daemon: "
@@ -50,8 +50,13 @@ case "$1" in
 	RETVAL=$?
 	echo
 	;;
+  reload)
+	[ "$uid" -ne 0 ] && exit 4
+	killproc fdrd -HUP
+	RETVAL=$?
+	;;
   *)
-	echo $"Usage: fdr {start|stop|status|restart}"
+	echo $"Usage: fdr {start|stop|status|restart|reload}"
 	RETVAL=2
 	;;
 esac

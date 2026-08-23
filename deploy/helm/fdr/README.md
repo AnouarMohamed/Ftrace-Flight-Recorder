@@ -1,62 +1,67 @@
-# Helm chart
+# FDR Helm chart
 
-Install FDR as a per-node DaemonSet with configurable node placement, probes,
-and image settings.
+This chart installs FDR as a privileged per-node DaemonSet.
 
-## Install
+~~~sh
+helm upgrade --install fdr deploy/helm/fdr \
+  --namespace fdr-system --create-namespace
+~~~
 
-```sh
-# Override the image registry to match your GHCR repo
-helm upgrade --install fdr ./deploy/helm/fdr \
-  --namespace fdr-system --create-namespace \
-  --set image.repository=ghcr.io/<owner>/fdr \
-  --set image.tag=latest
-```
+The chart uses the normal Helm release namespace; it does not create or manage a
+Namespace resource itself.
 
-## Worker nodes only
+## Configuration
 
-```yaml
-# values-workers.yaml
+Override probe files through values:
+
+~~~yaml
+config:
+  node.conf: |
+    instance node 16m
+    enable sched/sched_switch
+    minfree 5
+    saveto /var/log/fdr/node.log 64m
+~~~
+
+~~~sh
+helm upgrade --install fdr deploy/helm/fdr \
+  --namespace fdr-system \
+  --set-file config.node.conf=./my-probes.conf
+~~~
+
+The pod template contains a checksum of the ConfigMap, so configuration changes
+automatically roll the DaemonSet.
+
+## Common values
+
+~~~yaml
+image:
+  repository: ghcr.io/anouarmohamed/fdr-k8s
+  tag: latest
+
+http:
+  enabled: true
+  address: 0.0.0.0
+  port: 9119
+
 nodeSelector:
   kubernetes.io/os: linux
-tolerations:
-  - key: node-role.kubernetes.io/worker
-    operator: Exists
-    effect: NoSchedule
-```
 
-```sh
-helm upgrade --install fdr ./deploy/helm/fdr -f values-workers.yaml
-```
+logs:
+  hostPath: /var/log/fdr
 
-## Custom probes
+modules:
+  hostPath: /lib/modules
+~~~
 
-Edit the `config` map in `values.yaml` or pass `--set-file`:
-
-```sh
-helm upgrade --install fdr ./deploy/helm/fdr \
-  --set-file config.node.conf=./my-probes.conf
-```
-
-## Upgrade after image publish
-
-Tag a release to trigger GHCR publish (`.github/workflows/publish-image.yml`):
-
-```sh
-git tag v1.3.0
-git push origin v1.3.0
-```
-
-Then:
-
-```sh
-helm upgrade fdr ./deploy/helm/fdr --set image.tag=v1.3.0
-```
+When HTTP is enabled, the chart adds startup, liveness, and readiness probes.
+The endpoint is not exposed through a Service.
 
 ## Uninstall
 
-```sh
-helm uninstall fdr -n fdr-system
-```
+~~~sh
+helm uninstall fdr --namespace fdr-system
+~~~
 
-Host logs under `/var/log/fdr` are not removed automatically.
+Trace instances are removed during graceful shutdown. Host logs under
+<code>/var/log/fdr</code> remain intentionally.

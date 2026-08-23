@@ -6,123 +6,158 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-void
-fdr_trace_create_instance(struct fdr_instance *insp, struct fdr_item *item)
+static int
+fdr_write_control(const char *path, const char *value)
 {
-	char path[FDR_PATH_MAX], value[FDR_BUFSIZE];
-	int fd, len;
+	int fd;
+	int rc;
 
-	fprintf(stderr, "creating: %s\n", insp->dname);
-	(void)rmdir(insp->dname);
-	errno = 0;
-	if (mkdir(insp->dname, 0700) && errno != EEXIST) {
-		perror(insp->dname);
-		exit(FDR_EC_MKDIR);
-	}
-
-	if (insp->bufsize == 0)
-		return;
-
-	fprintf(stderr, "%s: bufsize %lu\n", item->target, insp->bufsize);
-	snprintf(path, sizeof(path), "%.*s/buffer_size_kb",
-	    (int)(sizeof(path) - 16), insp->dname);
-
-	fd = open(path, O_WRONLY);
+	fd = open(path, O_WRONLY | O_CLOEXEC);
 	if (fd < 0) {
-		perror(path);
-		return;
+		fdr_warn("cannot open %s: %s", path, strerror(errno));
+		return -1;
 	}
-
-	snprintf(value, sizeof(value), "%lu", insp->bufsize);
-	len = (int)strlen(value);
-	if (write(fd, value, (size_t)len) == -1)
-		perror(path);
-	close(fd);
+	rc = fdr_write_all(fd, value, strlen(value));
+	if (rc != 0)
+		fdr_warn("cannot write %s: %s", path, strerror(errno));
+	if (close(fd) != 0 && rc == 0) {
+		fdr_warn("cannot close %s: %s", path, strerror(errno));
+		rc = -1;
+	}
+	return rc;
 }
 
-void
-fdr_trace_load_module(struct fdr_item *item)
-{
-	char cmdline[FDR_BUFSIZE];
-
-	snprintf(cmdline, sizeof(cmdline), "modprobe %s", item->target);
-	if (system(cmdline) != 0) {
-		perror(cmdline);
-		exit(FDR_EC_SYSTEM);
-	}
-}
-
-void
-fdr_trace_set_probe(struct fdr_instance *insp, struct fdr_item *item)
+int
+fdr_trace_create_instance(struct fdr_instance *insp,
+    const struct fdr_item *item)
 {
 	char path[FDR_PATH_MAX];
-	char target[FDR_BUFSIZE];
-	char *slash, *value, *action;
-	int fd, len;
+	char value[32];
 
-	fdr_copy_field(target, sizeof(target), item->target);
-
-	slash = strchr(target, '/');
-	if (slash == NULL) {
-		fprintf(stderr, "missing slash on line %d in %s\n",
-		    item->line, item->fpath);
-		exit(FDR_EC_SYNTAX);
+	(void)item;
+	if (rmdir(insp->dname) != 0 && errno != ENOENT) {
+		fdr_warn("cannot remove stale trace instance %s: %s",
+		    insp->dname, strerror(errno));
+		return -1;
 	}
-	slash++;
-	if (strncmp(slash, "all", 3) == 0)
-		*--slash = '\0';
-
-	snprintf(path, sizeof(path), "%s/%s/events/%s/enable",
-	    fdr.inst_dir, insp->iname, target);
-
-	if (item->type == FDR_ITEM_ENABLE) {
-		value = "1";
-		action = "enable";
-	} else {
-		value = "0";
-		action = "disable";
+	if (mkdir(insp->dname, 0700) != 0) {
+		fdr_warn("cannot create trace instance %s: %s",
+		    insp->dname, strerror(errno));
+		return -1;
 	}
+	fdr_log("info", "created trace instance %s", insp->iname);
 
-	if (fdr.verbose > 1)
-		fprintf(stderr, "%s: %s\n", action, path);
+	if (insp->bufsize_kb == 0)
+		return 0;
+	if (fdr_join_path(path, sizeof(path), insp->dname, "buffer_size_kb") != 0) {
+		fdr_warn("trace buffer path is too long for %s", insp->iname);
+		return -1;
+	}
+	(void)snprintf(value, sizeof(value), "%" PRIu64, insp->bufsize_kb);
+	if (fdr_write_control(path, value) != 0)
+		return -1;
+	fdr_log("info", "set instance %s buffer to %" PRIu64 " KiB per CPU",
+	    insp->iname, insp->bufsize_kb);
+	return 0;
+}
 
-	fd = open(path, O_WRONLY);
-	if (fd < 0) {
-		if (errno == ENOENT) {
-			fprintf(stderr, "%s: no such probe\n", item->target);
-			return;
+int
+fdr_trace_load_module(const struct fdr_item *item)
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid < 0) {
+		fdr_warn("cannot fork modprobe: %s", strerror(errno));
+		return -1;
+	}
+	if (pid == 0) {
+		pid_t parent = getppid();
+
+		if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || parent == 1 ||
+		    getppid() != parent)
+			_exit(FDR_EC_SYSTEM);
+		execlp("modprobe", "modprobe", "--", item->target, (char *)NULL);
+		fdr_log("error", "cannot execute modprobe: %s", strerror(errno));
+		_exit(FDR_EC_EXEC);
+	}
+	do {
+		pid_t waited = waitpid(pid, &status, 0);
+
+		if (waited == pid)
+			break;
+		if (waited < 0 && errno != EINTR) {
+			fdr_warn("cannot wait for modprobe: %s", strerror(errno));
+			return -1;
 		}
-		perror(path);
-		exit(FDR_EC_OPEN);
+	} while (1);
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		fdr_warn("modprobe %s failed", item->target);
+		return -1;
+	}
+	return 0;
+}
+
+static int
+fdr_probe_path(char *path, size_t pathsz, const struct fdr_instance *insp,
+    const char *target, const char *control)
+{
+	int n = snprintf(path, pathsz, "%s/events/%s/%s",
+	    insp->dname, target, control);
+
+	return n < 0 || (size_t)n >= pathsz ? -1 : 0;
+}
+
+int
+fdr_trace_set_probe(struct fdr_instance *insp, const struct fdr_item *item)
+{
+	char path[FDR_PATH_MAX];
+	char target[FDR_NAME_MAX * 2];
+	char *event;
+	const char *value;
+
+	if (fdr_copy_field(target, sizeof(target), item->target) != 0)
+		return -1;
+	event = strchr(target, '/');
+	if (event == NULL)
+		return -1;
+	event++;
+	if (strcmp(event, "all") == 0)
+		event[-1] = '\0';
+
+	/* A filter must be valid before the event is enabled. */
+	if (item->type == FDR_ITEM_ENABLE && item->optarg[0] != '\0') {
+		if (fdr_probe_path(path, sizeof(path), insp, target, "filter") != 0 ||
+		    fdr_write_control(path, item->optarg) != 0)
+			goto failed;
 	}
 
-	if (write(fd, value, 1) != 1) {
-		perror("write");
-		close(fd);
-		exit(FDR_EC_WRITE1);
+	value = item->type == FDR_ITEM_ENABLE ? "1" : "0";
+	if (fdr_probe_path(path, sizeof(path), insp, target, "enable") != 0 ||
+	    fdr_write_control(path, value) != 0)
+		goto failed;
+	if (fdr.verbose)
+		fdr_log("info", "%s probe %s",
+		    item->type == FDR_ITEM_ENABLE ? "enabled" : "disabled",
+		    item->target);
+	return 0;
+
+failed:
+	if (fdr.metrics != NULL) {
+		fdr_metrics_add(&fdr.metrics->probe_failures, 1);
+		fdr_metrics_store_int(&fdr.metrics->healthy, 0);
 	}
-	close(fd);
-
-	if (item->optarg[0] == '\0')
-		return;
-
-	snprintf(path, sizeof(path), "%s/%s/events/%s/filter",
-	    fdr.inst_dir, insp->iname, target);
-	fprintf(stderr, "applying filter '%s' to %s\n", item->optarg, path);
-
-	fd = open(path, O_WRONLY);
-	if (fd < 0) {
-		perror(path);
-		return;
-	}
-	len = (int)strlen(item->optarg);
-	if (write(fd, item->optarg, (size_t)len) != len)
-		perror(path);
-	close(fd);
+	fdr_warn("failed to configure probe %s (%s:%d)", item->target,
+	    item->fpath, item->line);
+	return -1;
 }

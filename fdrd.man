@@ -1,135 +1,129 @@
-.TH fdrd 8 "23 August 2026"
+.TH FDRD 8 "23 August 2026" "fdr 1.4.0" "System Administration"
 .SH NAME
-fdrd \- Flight Data Recorder daemon
+fdrd \- record configured Linux ftrace events
 .SH SYNOPSIS
-.BI "/usr/sbin/fdrd"
-[\fB-f\fR] [\fB-n\fR] [\fB-v\fR] [\fB-c\fR \fIconfig-dir\fR] [\fB-d\fR \fItrace-root\fR]
+.B fdrd
+[\fB\-fjnvV\fR]
+[\fB\-a\fR \fIaddress\fR]
+[\fB\-p\fR \fIport\fR]
+[\fB\-c\fR \fIconfig-directory\fR]
+[\fB\-d\fR \fItracefs-root\fR]
 .SH DESCRIPTION
-The
 .B fdrd
-program is a daemon which enables ftrace probes,
-harvests ftrace data and (optionally) writes the data to a file.
-.P
-The behavior of fdr is defined by configuration files stored in
-.B /etc/fdr.d.
-During service startup, fdr will process each file in
-the directory which has the suffix of .conf.  If new config files
-are added to the fdr.d directory, then the service must be restarted
-to recognize the new configuration information.
-.P
-fdr is controlled by
-.B systemd
-(8) on systems where systemd is
-available. In containers or Kubernetes, run
-.B fdrd
-with
-.B -f
-to stay in the foreground. Error messages from fdr can be viewed via systemctl,
-for example,
-.P
-.B
-systemctl status -l fdr
-.SH Configuration File Syntax
-
-The following keywords and options are recognized
-
+creates isolated ftrace instances, enables configured tracepoints, and
+optionally appends events to files. One worker process is used per
+configuration file.
+.PP
+Configuration files are regular files named
+.B *.conf
+directly under
+.BR /etc/fdr.d .
+Each file must begin with exactly one
 .B instance
-iname [buffer-size]
-.P
-Create a new ftrace instance called "iname".  This instance
-will appear in
-.BR /sys/kernel/tracing/instances
-(or the debugfs equivalent on older kernels).
-.P
-The optional buffer-size parameter can be used to control
-the size of the ftrace buffers for this instance in the
-kernel.  A suffix of 'k', 'K', 'm', 'M', 'g' or 'G' may be
-used to specify kilobytes, megabytes or gigabytes.
-.P
-.B modprobe
-module-name
-.P
-Force the named module to be loaded by fdr.  This can be
-useful when the module is normally loaded on demand and
-the probes cannot be enabled until the module is loaded.
-.P
-.B enable
-subsystem-name/probe-name [filter]
-.P
-Enable an ftrace probe in the specified subsystem.  Both
-the subsystem name and probe name are defined by the kernel.
-.P
-The optional filter parameter allows an ftrace filter to
-be set as well.  This will limit the amount of data being
-emitted.  The syntax of the filter language is
-defined by ftrace itself and the parameters are defined
-by the static tracepoint being enabled in the kernel.
-.P
-.B enable
-subsystem-name/all
-.P
-Enable all ftrace probes for the subsystem.
-.P
-.P
-.B disable
-subsystem-name/probe-name
-.P
-Disable an ftrace probe in the specified subsystem.  This
-can be useful to disable selective probes when the "ALL"
-keyword has been used.
-.P
-.B disable
-subsystem-name/all
-.P
-Disable all probes in the specified subsystem.
-.P
-.B saveto
-file-name [maxsize]
-.P
-Save the output of enabled probes to the named file.  If
-the optional maxsize parameter is given, the daemon will
-initiate a log rotation, see
-.B Log Rotation
-below.
-A suffix
-of 'k', 'K', 'm', 'M', 'g' or 'G' may be used to specify
-kilobytes, megabytes or gigabytes.
-.P
-If no saveto directive is present, then fdr will create the
-instance and enable the probes.  In this case, the data
-can be harvested manually by reading:
-.P
-/sys/kernel/tracing/instances/iname/trace_pipe
-(or the debugfs equivalent).
-.P
-The ftrace buffers in the kernel are circular. If no
-process harvests the data, new data will overwrite old data.
-.P
-.B minfree
-value
-.P
-Limit the output by the daemon based on free space in the
-file system for the save file.  If free space percentage is
-below the specified value, no output will be written.
-.P
-If no minfree directive is present, fdr will use 5% by
-default.
-.SH LOG ROTATION
-.P
-fdr can use logrotate(8) to manage the output files.  By convention,
-/etc/logrotate.d/instance-name controls the behavior of logrotate.
-.P
-fdr will also invoke logrotate directly at startup and when reaching
-the maxsize limit for the save file.
-.SH SEE ALSO
-.P
-https://lwn.net/Articles/410200/
-.P
-https://docs.kernel.org/trace/ftrace.html
+directive. Configuration is validated before workers start.
+.SH OPTIONS
+.TP
+.BI \-a " address"
+IPv4 address for HTTP health and metrics. Default:
+.BR 127.0.0.1 .
+.TP
+.BI \-c " directory"
+Configuration directory. Default:
+.BR /etc/fdr.d .
+.TP
+.BI \-d " directory"
+Tracefs root. The
+.B instances
+component is appended automatically.
+.TP
+.B \-f
+Remain in the foreground. Required under systemd and in containers.
+.TP
+.B \-j
+Write one JSON object per log line.
+.TP
+.B \-n
+Validate configuration and exit without accessing tracefs.
+.TP
+.BI \-p " port"
+HTTP port. Default: 9119. Zero disables HTTP.
+.TP
+.B \-v
+Increase verbosity.
+.TP
+.B \-V
+Print the program version and exit.
+.SH CONFIGURATION
+.TP
+.BI "instance " "name [buffer-size]"
+Create an isolated trace instance. Sizes are bytes with optional
+.BR k ,
+.BR m ,
+or
+.B g
+suffixes. FDR converts the value to the kernel's KiB-per-CPU unit.
+.TP
+.BI "modprobe " module
+Load a module without invoking a shell.
+.TP
+.BI "enable " "subsystem/event [filter]"
+Apply an optional ftrace filter and enable an event.
+.I subsystem/all
+enables a complete subsystem.
+.TP
+.BI "disable " subsystem/event
+Disable an event or
+.IR subsystem/all .
+.TP
+.BI "minfree " percentage
+Drop trace data when available space on the output filesystem is at or below
+this percentage. The default is 5.
+.TP
+.BI "saveto " "absolute-path [maximum-size]"
+Append trace data to a regular file. At the optional limit, use the instance's
+logrotate configuration or preserve one fallback generation with a
+.B .1
+suffix.
+.SH HTTP
+.TP
+.B /healthz
+Liveness of the parent event loop.
+.TP
+.B /readyz
+Readiness of configured probes and persistent collectors.
+.TP
+.B /metrics
+Prometheus text metrics.
+.SH SIGNALS
+.TP
+.B SIGHUP
+Validate current configuration files and atomically replace active workers.
+Invalid new configuration is rejected without disturbing current workers.
+.TP
+.B SIGUSR1
+Collector processes reopen their output files. Send it to all processes in the
+service after external log rotation.
+.TP
+.B SIGTERM, SIGINT
+Stop workers, remove trace instances, and exit.
 .SH FILES
 .TP
-.B /etc/fdr.d
-Directory containing instance configuration files (\fI*.conf\fR).
+.B /etc/fdr.d/*.conf
+Instance configuration.
 .TP
-.B /usr/share/fdr/samples
-Sample configuration and logrotate snippets.
+.B /etc/logrotate.d/<instance>
+Optional rotation policy.
+.TP
+.B /sys/kernel/tracing/instances
+Preferred tracefs instance directory.
+.TP
+.B /sys/kernel/debug/tracing/instances
+Legacy fallback.
+.SH SECURITY
+The daemon normally runs as root and controls host-kernel tracing. Configuration
+write access must be restricted to administrators. HTTP has no built-in
+authentication or TLS and binds to loopback by default.
+.SH SEE ALSO
+.BR logrotate (8),
+.BR modprobe (8),
+.BR systemd.service (5)

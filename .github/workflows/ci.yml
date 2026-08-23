@@ -4,11 +4,40 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
     steps:
       - uses: actions/checkout@v4
 
       - name: Build and test
-        run: make check
+        env:
+          CC: ${{ matrix.compiler }}
+          CFLAGS: -O2 -g -Werror
+        run: make clean check
+
+      - name: Sanitizers
+        if: matrix.compiler == 'clang'
+        run: make sanitize SANITIZER_CC=clang
+
+  deployment-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: azure/setup-kubectl@v4
+
+      - name: Validate Helm chart
+        run: |
+          helm lint deploy/helm/fdr
+          helm template fdr deploy/helm/fdr --namespace fdr-system >/dev/null
+
+      - name: Validate Kustomize manifests
+        run: kubectl kustomize deploy/kubernetes >/dev/null

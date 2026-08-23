@@ -1,0 +1,10 @@
+.git
+.github
+.build
+fdrd
+src/*.o
+*.tar.xz
+buildrpm
+deploy/helm
+deploy/kubernetes/*.yaml
+deploy/kubernetes/*.md
