@@ -62,3 +62,7 @@ The pod must be privileged to create trace instances and enable host probes.
 Anyone able to change its image, arguments, or ConfigMap effectively controls a
 root process with host-kernel access. Restrict RBAC on the namespace and review
 enabled probes for performance and data sensitivity.
+
+The Kubernetes hardening plan—including immutable images, safer scheduling,
+tracefs preflight, metrics discovery, network policy, and real-cluster smoke
+tests—is tracked in [the project roadmap](../../ROADMAP.md#milestone-1-kubernetes-hardening).

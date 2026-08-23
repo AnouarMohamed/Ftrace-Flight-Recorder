@@ -163,6 +163,10 @@ The tests use a temporary fake tracefs and never modify the host kernel. A final
 release should also be exercised on a disposable Linux node against the kernel
 versions it intends to support.
 
+See [ROADMAP.md](ROADMAP.md) for the ordered v1.5 work: Kubernetes hardening,
+real-kernel validation, performance and event-loss benchmarks, triggered
+incident capture, interoperability, and the release definition of done.
+
 | File | Responsibility |
 |---|---|
 | <code>main.c</code> | CLI and lifecycle |

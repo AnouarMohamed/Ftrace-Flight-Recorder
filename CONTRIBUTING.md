@@ -13,6 +13,11 @@ Follow the instructions in [SECURITY.md](./SECURITY.md).
 
 ## Contributing code
 
+For planned work, start with [ROADMAP.md](./ROADMAP.md). It contains the project
+priorities, acceptance criteria, validation expectations, and intentionally
+deferred ideas. Open one focused issue for a roadmap item before combining it
+with unrelated refactoring.
+
 1. Fork this repository.
 2. Create a branch for your change.
 3. Make your changes and update documentation if needed.
