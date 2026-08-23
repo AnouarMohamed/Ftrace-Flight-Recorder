@@ -1,0 +1,12 @@
+apiVersion: v2
+name: fdr
+description: Flight Data Recorder - per-node kernel ftrace DaemonSet
+type: application
+version: 0.2.0
+appVersion: "1.3"
+keywords:
+  - ftrace
+  - tracing
+  - observability
+  - daemonset
+maintainers: []

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fdr
+  namespace: fdr-system
+  labels:
+    app: fdr
+spec:
+  selector:
+    matchLabels:
+      app: fdr
+  template:
+    metadata:
+      labels:
+        app: fdr
+    spec:
+      # Example: trace workers only (uncomment in an overlay)
+      # nodeSelector:
+      #   node-role.kubernetes.io/worker: ""
+      nodeSelector: {}
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+        - operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: fdrd
+          image: fdr:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -f
+            - -d
+            - /sys/kernel/tracing
+            - -c
+            - /etc/fdr.d
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+            - name: config
+              mountPath: /etc/fdr.d
+            - name: logs
+              mountPath: /var/log/fdr
+      volumes:
+        - name: tracefs
+          hostPath:
+            path: /sys/kernel/tracing
+            type: Directory
+        - name: config
+          configMap:
+            name: fdr-config
+        - name: logs
+          hostPath:
+            path: /var/log/fdr
+            type: DirectoryOrCreate

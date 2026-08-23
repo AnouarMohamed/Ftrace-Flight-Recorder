@@ -1,0 +1,19 @@
+FDR (Flight Data Recorder) has been installed as a DaemonSet.
+
+1. Watch pods come up on each node:
+
+  kubectl -n {{ .Values.namespace.name }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -o wide
+
+2. Inspect logs:
+
+  kubectl -n {{ .Values.namespace.name }} logs -l app.kubernetes.io/instance={{ .Release.Name }}
+
+3. Host trace files are written under:
+
+  {{ .Values.logs.hostPath }}
+
+4. Edit probe configuration in values.yaml (config section), then upgrade:
+
+  helm upgrade {{ .Release.Name }} ./deploy/helm/fdr -f my-values.yaml
+
+NOTE: Pods run privileged with host tracefs mounted. Restrict RBAC on this namespace.

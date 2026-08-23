@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fdr-system
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - daemonset.yaml
+
+images:
+  - name: fdr
+    newName: fdr
+    newTag: latest

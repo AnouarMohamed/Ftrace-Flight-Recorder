@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "fdr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "fdr.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "fdr.selectorLabels" . | nindent 6 }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "fdr.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: fdrd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - -f
+            - -d
+            - /sys/kernel/tracing
+            - -c
+            - /etc/fdr.d
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            privileged: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+            - name: config
+              mountPath: /etc/fdr.d
+            - name: logs
+              mountPath: /var/log/fdr
+      volumes:
+        - name: tracefs
+          hostPath:
+            path: {{ .Values.tracefs.hostPath }}
+            type: Directory
+        - name: config
+          configMap:
+            name: {{ include "fdr.fullname" . }}-config
+        - name: logs
+          hostPath:
+            path: {{ .Values.logs.hostPath }}
+            type: DirectoryOrCreate

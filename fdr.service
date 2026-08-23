@@ -1,0 +1,16 @@
+[Unit]
+Description=Flight Data Recorder
+Documentation=file:/usr/share/fdr/README
+After=local-fs.target
+ConditionPathExists=/etc/fdr.d
+
+[Service]
+Type=forking
+ExecStart=/usr/sbin/fdrd
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

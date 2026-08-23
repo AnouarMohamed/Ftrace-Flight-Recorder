@@ -1,0 +1,60 @@
+# Default values for fdr.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/example/fdr
+  tag: latest
+  pullPolicy: IfNotPresent
+
+namespace:
+  create: true
+  name: fdr-system
+
+# Run on every Linux node by default. Example worker-only selector:
+# nodeSelector:
+#   kubernetes.io/os: linux
+#   node-role.kubernetes.io/worker: ""
+nodeSelector: {}
+
+# Tolerate all taints so control-plane and specialized nodes can be traced.
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+priorityClassName: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+tracefs:
+  hostPath: /sys/kernel/tracing
+
+logs:
+  hostPath: /var/log/fdr
+
+config:
+  node.conf: |
+    instance node
+    enable sched/sched_switch
+    enable sched/sched_wakeup
+    saveto /var/log/fdr/node.log 64m
+    minfree 5
+
+extraArgs: []
+
+serviceAccount:
+  create: false
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+updateStrategy: {}
