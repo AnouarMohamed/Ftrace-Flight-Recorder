@@ -8,7 +8,7 @@ DaemonSet, one pod per node, with host tracefs mounted read/write.
 - Linux nodes with tracefs mounted at <code>/sys/kernel/tracing</code>
 - Permission to run privileged pods
 - The configured tracepoints on every selected node kernel
-- Access to <code>ghcr.io/anouarmohamed/fdr-k8s</code>, or an image override
+- Access to the pinned FDR image, or an image override
 
 ## Deploy
 
@@ -18,11 +18,15 @@ kubectl -n fdr-system rollout status daemonset/fdr
 kubectl -n fdr-system get pods -o wide
 ~~~
 
-Logs are stored on each host under <code>/var/log/fdr</code>. Host
-<code>/lib/modules</code> is mounted read-only for optional
-<code>modprobe</code> directives. The container root filesystem is read-only;
-only tracefs, host logs, temporary storage, and logrotate state are writable.
-Kubernetes API credentials are not mounted.
+Logs are stored on each host under <code>/var/log/fdr</code>. Host modules are
+not exposed by the base deployment; add a narrowly reviewed overlay if its
+configuration requires <code>modprobe</code>. The container root filesystem is
+read-only; only tracefs, host logs, temporary storage, and logrotate state are
+writable. Kubernetes API credentials are not mounted.
+
+The base schedules only on Linux nodes and has no tolerations. Select and
+tolerate special-purpose or control-plane nodes only in an explicit overlay.
+There is no default CPU limit because throttling a collector can lose events.
 
 ## Configure
 
@@ -37,6 +41,17 @@ updates the pod template and rolls the DaemonSet automatically. Readiness stays
 false if a configured probe cannot be applied. A persistent collector failure
 terminates the container so Kubernetes restarts it.
 
+Before startup, the <code>tracefs-preflight</code> init container verifies that
+the hostPath is a writable tracefs mount with an <code>instances</code>
+directory. Diagnose a failed preflight with:
+
+~~~sh
+kubectl -n fdr-system get pods
+kubectl -n fdr-system logs POD_NAME -c tracefs-preflight
+stat -f -c '%T' /sys/kernel/tracing
+mount | grep tracefs
+~~~
+
 To use a different image:
 
 ~~~sh
@@ -44,6 +59,33 @@ cd deploy/kubernetes
 kustomize edit set image fdr=registry.example.com/observability/fdr:v1.4.0
 kubectl apply -k .
 ~~~
+
+To enable module loading, add a strategic-merge patch in a private overlay.
+This deliberately exposes another host-kernel control surface:
+
+~~~yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fdr
+spec:
+  template:
+    spec:
+      containers:
+        - name: fdrd
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+      volumes:
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+~~~
+
+Reference that patch from the overlay's <code>kustomization.yaml</code>; do not
+add it to the shared base unless every deployment requires module loading.
 
 ## Observe
 
@@ -54,7 +96,8 @@ curl http://127.0.0.1:9119/metrics
 ~~~
 
 The manifests expose HTTP only as a container port; they do not create a
-cluster-wide Service.
+cluster-wide Service. The Helm chart can optionally create a PodMonitor and an
+ingress NetworkPolicy for Prometheus Operator deployments.
 
 ## Security
 

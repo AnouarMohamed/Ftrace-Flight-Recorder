@@ -43,6 +43,45 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.preflight.enabled }}
+      initContainers:
+        - name: tracefs-preflight
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              fs_type="$(awk -v path=/sys/kernel/tracing '
+                $5 == path {
+                  for (i = 1; i <= NF; i++) {
+                    if ($i == "-") { print $(i + 1); exit }
+                  }
+                }
+              ' /proc/self/mountinfo)"
+              if [ "$fs_type" != "tracefs" ]; then
+                echo "fatal: /sys/kernel/tracing is $fs_type, not tracefs" >&2
+                exit 1
+              fi
+              if [ ! -d /sys/kernel/tracing/instances ]; then
+                echo "fatal: tracefs instances directory is missing" >&2
+                exit 1
+              fi
+              if [ ! -w /sys/kernel/tracing/instances ]; then
+                echo "fatal: tracefs instances directory is not writable" >&2
+                exit 1
+              fi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+      {{- end }}
       containers:
         - name: fdrd
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -96,9 +135,11 @@ spec:
           volumeMounts:
             - name: tracefs
               mountPath: /sys/kernel/tracing
+            {{- if .Values.modules.enabled }}
             - name: modules
               mountPath: /lib/modules
               readOnly: true
+            {{- end }}
             - name: config
               mountPath: /etc/fdr.d
             - name: logs
@@ -112,10 +153,12 @@ spec:
           hostPath:
             path: {{ .Values.tracefs.hostPath }}
             type: Directory
+        {{- if .Values.modules.enabled }}
         - name: modules
           hostPath:
             path: {{ .Values.modules.hostPath }}
             type: Directory
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "fdr.fullname" . }}-config

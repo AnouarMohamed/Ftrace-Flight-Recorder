@@ -1,7 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["image", "http", "config", "tracefs", "modules", "logs"],
+  "required": [
+    "image",
+    "http",
+    "preflight",
+    "config",
+    "tracefs",
+    "modules",
+    "logs",
+    "monitoring",
+    "networkPolicy"
+  ],
   "properties": {
     "image": {
       "type": "object",
@@ -31,14 +41,87 @@
       "type": "integer",
       "minimum": 1
     },
+    "preflight": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
     "config": {
       "type": "object",
       "minProperties": 1,
       "additionalProperties": {"type": "string"}
     },
     "tracefs": {"$ref": "#/definitions/hostPath"},
-    "modules": {"$ref": "#/definitions/hostPath"},
-    "logs": {"$ref": "#/definitions/hostPath"}
+    "modules": {
+      "allOf": [
+        {"$ref": "#/definitions/hostPath"},
+        {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        }
+      ]
+    },
+    "logs": {"$ref": "#/definitions/hostPath"},
+    "monitoring": {
+      "type": "object",
+      "required": ["podMonitor"],
+      "properties": {
+        "podMonitor": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "namespace",
+            "interval",
+            "scrapeTimeout",
+            "additionalLabels"
+          ],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "namespace": {"type": "string"},
+            "interval": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$"
+            },
+            "scrapeTimeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$"
+            },
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["enabled", "ingress"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "ingress": {
+          "type": "object",
+          "required": ["namespaceSelector", "podSelector"],
+          "properties": {
+            "namespaceSelector": {"type": "object"},
+            "podSelector": {"type": "object"}
+          }
+        }
+      }
+    }
   },
   "definitions": {
     "hostPath": {

@@ -53,6 +53,18 @@ gap is the next priority.
 | 4 | Incident-triggered capture | A distinctive, genuine flight-recorder workflow |
 | 5 | Interoperability and demonstration | Captures that users can inspect and understand |
 
+Implementation status in the current development tree:
+
+- [x] Pin the base Helm and Kustomize images to <code>v1.4.0</code>.
+- [x] Select Linux nodes and require tolerations to be explicit.
+- [x] Remove the unproven default CPU limit.
+- [x] Add a tracefs type, directory, and write-access preflight.
+- [x] Make host module exposure opt-in in Helm and omit it from the base
+      Kustomize deployment.
+- [x] Add optional PodMonitor and ingress NetworkPolicy templates.
+- [ ] Validate the hardened deployment on a real disposable cluster.
+- [ ] Add and validate trace overrun/drop metrics under load.
+
 Do not begin a dashboard or Kubernetes operator before milestones 1 through 3
 are complete. Those components would increase the maintenance surface without
 proving that the recorder itself is dependable.

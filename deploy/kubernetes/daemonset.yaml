@@ -16,24 +16,54 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
-      # Example: trace workers only (uncomment in an overlay)
+      # Select narrower node pools in an overlay when required.
       # nodeSelector:
+      #   kubernetes.io/os: linux
       #   node-role.kubernetes.io/worker: ""
-      nodeSelector: {}
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
-        - operator: Exists
-          effect: NoExecute
-        - operator: Exists
-          effect: NoSchedule
+      nodeSelector:
+        kubernetes.io/os: linux
+      initContainers:
+        - name: tracefs-preflight
+          image: fdr:v1.4.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              fs_type="$(awk -v path=/sys/kernel/tracing '
+                $5 == path {
+                  for (i = 1; i <= NF; i++) {
+                    if ($i == "-") { print $(i + 1); exit }
+                  }
+                }
+              ' /proc/self/mountinfo)"
+              if [ "$fs_type" != "tracefs" ]; then
+                echo "fatal: /sys/kernel/tracing is $fs_type, not tracefs" >&2
+                exit 1
+              fi
+              if [ ! -d /sys/kernel/tracing/instances ]; then
+                echo "fatal: tracefs instances directory is missing" >&2
+                exit 1
+              fi
+              if [ ! -w /sys/kernel/tracing/instances ]; then
+                echo "fatal: tracefs instances directory is not writable" >&2
+                exit 1
+              fi
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
       containers:
         - name: fdrd
-          image: fdr:latest
+          image: fdr:v1.4.0
           imagePullPolicy: IfNotPresent
           args:
             - -f
@@ -76,14 +106,10 @@ spec:
               cpu: 50m
               memory: 64Mi
             limits:
-              cpu: 500m
               memory: 256Mi
           volumeMounts:
             - name: tracefs
               mountPath: /sys/kernel/tracing
-            - name: modules
-              mountPath: /lib/modules
-              readOnly: true
             - name: config
               mountPath: /etc/fdr.d
             - name: logs
@@ -96,10 +122,6 @@ spec:
         - name: tracefs
           hostPath:
             path: /sys/kernel/tracing
-            type: Directory
-        - name: modules
-          hostPath:
-            path: /lib/modules
             type: Directory
         - name: config
           configMap:

@@ -5,7 +5,7 @@ fullnameOverride: ""
 
 image:
   repository: ghcr.io/anouarmohamed/fdr-k8s
-  tag: latest
+  tag: v1.4.0
   pullPolicy: IfNotPresent
 
 http:
@@ -20,15 +20,19 @@ securityContext:
   runAsUser: 0
   readOnlyRootFilesystem: true
 
+preflight:
+  enabled: true
+
 # Run on every Linux node by default. Example worker-only selector:
 # nodeSelector:
 #   kubernetes.io/os: linux
 #   node-role.kubernetes.io/worker: ""
-nodeSelector: {}
+nodeSelector:
+  kubernetes.io/os: linux
 
-# Tolerate all taints so control-plane and specialized nodes can be traced.
-tolerations:
-  - operator: Exists
+# Add tolerations explicitly for tainted worker pools. Control-plane nodes are
+# intentionally excluded by default.
+tolerations: []
 
 affinity: {}
 
@@ -39,13 +43,13 @@ resources:
     cpu: 50m
     memory: 64Mi
   limits:
-    cpu: 500m
     memory: 256Mi
 
 tracefs:
   hostPath: /sys/kernel/tracing
 
 modules:
+  enabled: false
   hostPath: /lib/modules
 
 logs:
@@ -65,3 +69,19 @@ podAnnotations: {}
 podLabels: {}
 
 updateStrategy: {}
+
+monitoring:
+  podMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+
+networkPolicy:
+  enabled: false
+  ingress:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    podSelector: {}

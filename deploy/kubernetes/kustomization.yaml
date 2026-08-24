@@ -13,4 +13,4 @@ configMapGenerator:
 images:
   - name: fdr
     newName: ghcr.io/anouarmohamed/fdr-k8s
-    newTag: latest
+    newTag: v1.4.0

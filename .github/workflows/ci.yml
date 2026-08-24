@@ -36,8 +36,36 @@ jobs:
 
       - name: Validate Helm chart
         run: |
-          helm lint deploy/helm/fdr
-          helm template fdr deploy/helm/fdr --namespace fdr-system >/dev/null
+          helm lint --strict deploy/helm/fdr
+          helm template fdr deploy/helm/fdr --namespace fdr-system \
+            > /tmp/fdr-helm-default.yaml
+          if grep -q ':latest' /tmp/fdr-helm-default.yaml; then
+            echo 'default Helm output contains a mutable latest image' >&2
+            exit 1
+          fi
+          if grep -q '/lib/modules' /tmp/fdr-helm-default.yaml; then
+            echo 'default Helm output exposes host modules' >&2
+            exit 1
+          fi
+          helm template fdr deploy/helm/fdr --namespace fdr-system \
+            --set modules.enabled=true \
+            --set monitoring.podMonitor.enabled=true \
+            --set networkPolicy.enabled=true \
+            > /tmp/fdr-helm-optional.yaml
+          grep -q 'kind: PodMonitor' /tmp/fdr-helm-optional.yaml
+          grep -q 'kind: NetworkPolicy' /tmp/fdr-helm-optional.yaml
+          grep -q 'mountPath: /lib/modules' /tmp/fdr-helm-optional.yaml
 
       - name: Validate Kustomize manifests
-        run: kubectl kustomize deploy/kubernetes >/dev/null
+        run: |
+          kubectl kustomize deploy/kubernetes > /tmp/fdr-kustomize.yaml
+          if grep -q ':latest' /tmp/fdr-kustomize.yaml; then
+            echo 'Kustomize output contains a mutable latest image' >&2
+            exit 1
+          fi
+          if grep -q '/lib/modules' /tmp/fdr-kustomize.yaml; then
+            echo 'base Kustomize output exposes host modules' >&2
+            exit 1
+          fi
+          grep -q 'name: tracefs-preflight' /tmp/fdr-kustomize.yaml
+          grep -q 'kubernetes.io/os: linux' /tmp/fdr-kustomize.yaml

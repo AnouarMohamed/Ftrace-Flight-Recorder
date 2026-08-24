@@ -16,4 +16,13 @@ FDR (Flight Data Recorder) has been installed as a DaemonSet.
 
   helm upgrade {{ .Release.Name }} ./deploy/helm/fdr -f my-values.yaml
 
-NOTE: Pods run privileged with host tracefs mounted. Restrict RBAC on this namespace.
+{{- if .Values.monitoring.podMonitor.enabled }}
+5. A PodMonitor named {{ include "fdr.fullname" . }} was created in namespace
+   {{ default .Release.Namespace .Values.monitoring.podMonitor.namespace }}.
+{{- else }}
+5. Prometheus discovery is disabled. Set monitoring.podMonitor.enabled=true
+   when the Prometheus Operator CRDs are installed.
+{{- end }}
+
+NOTE: Pods run privileged with host tracefs mounted. Restrict who can change the
+DaemonSet, image, values, and ConfigMap. Module access is {{ ternary "enabled" "disabled" .Values.modules.enabled }}.
