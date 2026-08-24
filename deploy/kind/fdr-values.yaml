@@ -1,0 +1,41 @@
+fullnameOverride: fdr-lab
+
+image:
+  repository: fdr-lab
+  tag: dev
+  pullPolicy: Never
+
+config:
+  lab.conf: |
+    instance fdr-lab 1m
+    enable sched/sched_switch
+    enable sched/sched_wakeup
+    minfree 5
+    saveto /var/log/fdr/lab.log 32m
+
+monitoring:
+  podMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 15s
+    scrapeTimeout: 5s
+    additionalLabels:
+      release: monitoring
+  prometheusRule:
+    enabled: true
+    namespace: monitoring
+    additionalLabels:
+      release: monitoring
+  grafanaDashboard:
+    enabled: true
+    namespace: monitoring
+    labels:
+      grafana_dashboard: "1"
+
+networkPolicy:
+  enabled: true
+  ingress:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    podSelector: {}

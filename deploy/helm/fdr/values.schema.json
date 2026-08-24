@@ -77,7 +77,7 @@
     "logs": {"$ref": "#/definitions/hostPath"},
     "monitoring": {
       "type": "object",
-      "required": ["podMonitor"],
+      "required": ["podMonitor", "prometheusRule", "grafanaDashboard"],
       "properties": {
         "podMonitor": {
           "type": "object",
@@ -101,6 +101,31 @@
             },
             "additionalLabels": {
               "type": "object",
+              "additionalProperties": {"type": "string"}
+            }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "required": ["enabled", "namespace", "additionalLabels"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "namespace": {"type": "string"},
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": {"type": "string"}
+            }
+          }
+        },
+        "grafanaDashboard": {
+          "type": "object",
+          "required": ["enabled", "namespace", "labels"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "namespace": {"type": "string"},
+            "labels": {
+              "type": "object",
+              "minProperties": 1,
               "additionalProperties": {"type": "string"}
             }
           }

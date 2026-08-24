@@ -24,5 +24,15 @@ FDR (Flight Data Recorder) has been installed as a DaemonSet.
    when the Prometheus Operator CRDs are installed.
 {{- end }}
 
+{{- if .Values.monitoring.prometheusRule.enabled }}
+6. FDR integrity and availability alert rules were installed in namespace
+   {{ default .Release.Namespace .Values.monitoring.prometheusRule.namespace }}.
+{{- end }}
+
+{{- if .Values.monitoring.grafanaDashboard.enabled }}
+7. The FDR / Kernel Flight Recorder dashboard ConfigMap was installed in
+   namespace {{ default .Release.Namespace .Values.monitoring.grafanaDashboard.namespace }}.
+{{- end }}
+
 NOTE: Pods run privileged with host tracefs mounted. Restrict who can change the
 DaemonSet, image, values, and ConfigMap. Module access is {{ ternary "enabled" "disabled" .Values.modules.enabled }}.

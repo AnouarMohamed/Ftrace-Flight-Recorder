@@ -63,7 +63,9 @@ Implementation status in the current development tree:
       Kustomize deployment.
 - [x] Add optional PodMonitor and ingress NetworkPolicy templates.
 - [ ] Validate the hardened deployment on a real disposable cluster.
-- [ ] Add and validate trace overrun/drop metrics under load.
+- [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
+      readiness reflect observed loss.
+- [ ] Validate trace-loss behavior under controlled load.
 
 Do not begin a dashboard or Kubernetes operator before milestones 1 through 3
 are complete. Those components would increase the maintenance surface without

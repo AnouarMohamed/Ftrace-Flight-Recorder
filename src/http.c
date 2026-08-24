@@ -21,6 +21,21 @@
 #define FDR_TRACE_STATS_INTERVAL 5
 
 static int
+fdr_trace_stats_due(struct timespec *next)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+		return 0;
+	if (now.tv_sec < next->tv_sec ||
+	    (now.tv_sec == next->tv_sec && now.tv_nsec < next->tv_nsec))
+		return 0;
+	*next = now;
+	next->tv_sec += FDR_TRACE_STATS_INTERVAL;
+	return 1;
+}
+
+static int
 fdr_http_listen(const char *address, int port)
 {
 	int fd;
@@ -188,7 +203,7 @@ fdr_http_serve(const char *address, int port)
 {
 	int listener = -1;
 	struct pollfd pfd;
-	time_t next_trace_stats = 0;
+	struct timespec next_trace_stats = { 0, 0 };
 
 	if (port != 0) {
 		listener = fdr_http_listen(address, port);
@@ -208,7 +223,6 @@ fdr_http_serve(const char *address, int port)
 	pfd.events = POLLIN;
 	while (!fdr.want_exit) {
 		int poll_rc;
-		time_t now;
 
 		if (fdr.got_sigchld)
 			fdr_process_reap_children();
@@ -219,11 +233,8 @@ fdr_http_serve(const char *address, int port)
 		}
 		if (fdr.want_exit)
 			break;
-		now = time(NULL);
-		if (now != (time_t)-1 && now >= next_trace_stats) {
+		if (fdr_trace_stats_due(&next_trace_stats))
 			fdr_trace_sample_all_loss();
-			next_trace_stats = now + FDR_TRACE_STATS_INTERVAL;
-		}
 
 		pfd.revents = 0;
 		poll_rc = poll(listener >= 0 ? &pfd : NULL,

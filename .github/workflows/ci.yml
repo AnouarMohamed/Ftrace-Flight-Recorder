@@ -50,11 +50,26 @@ jobs:
           helm template fdr deploy/helm/fdr --namespace fdr-system \
             --set modules.enabled=true \
             --set monitoring.podMonitor.enabled=true \
+            --set monitoring.prometheusRule.enabled=true \
+            --set monitoring.grafanaDashboard.enabled=true \
             --set networkPolicy.enabled=true \
             > /tmp/fdr-helm-optional.yaml
           grep -q 'kind: PodMonitor' /tmp/fdr-helm-optional.yaml
+          grep -q 'kind: PrometheusRule' /tmp/fdr-helm-optional.yaml
+          grep -q 'fdr-overview.json:' /tmp/fdr-helm-optional.yaml
           grep -q 'kind: NetworkPolicy' /tmp/fdr-helm-optional.yaml
           grep -q 'mountPath: /lib/modules' /tmp/fdr-helm-optional.yaml
+          jq empty deploy/helm/fdr/dashboards/fdr-overview.json
+
+      - name: Validate Kind lab assets
+        run: |
+          sh -n deploy/kind/lab.sh
+          helm template fdr-lab deploy/helm/fdr --namespace fdr-lab \
+            --values deploy/kind/fdr-values.yaml \
+            > /tmp/fdr-kind-lab.yaml
+          grep -q 'kind: PodMonitor' /tmp/fdr-kind-lab.yaml
+          grep -q 'kind: PrometheusRule' /tmp/fdr-kind-lab.yaml
+          grep -q 'uid.*fdr-kernel-recorder' /tmp/fdr-kind-lab.yaml
 
       - name: Validate Kustomize manifests
         run: |

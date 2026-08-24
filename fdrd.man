@@ -90,10 +90,12 @@ suffix.
 Liveness of the parent event loop.
 .TP
 .B /readyz
-Readiness of configured probes and persistent collectors.
+Readiness of configured probes, persistent collectors, and trace integrity.
 .TP
 .B /metrics
-Prometheus text metrics.
+Prometheus text metrics, including bytes written or dropped, rotations, probe
+and write failures, worker state, and cumulative tracefs overruns or dropped
+events. Newly observed trace loss makes readiness false.
 .SH SIGNALS
 .TP
 .B SIGHUP

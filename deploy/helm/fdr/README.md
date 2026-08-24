@@ -116,7 +116,7 @@ modules:
 This does not remove the privileged security boundary; it only avoids exposing
 host modules to deployments that do not use them.
 
-## Prometheus discovery and network policy
+## Prometheus, alerts, Grafana, and network policy
 
 The PodMonitor is optional because its resource type is supplied by Prometheus
 Operator rather than Kubernetes itself. Enable it only after installing those
@@ -131,10 +131,29 @@ monitoring:
     scrapeTimeout: 10s
     additionalLabels:
       release: kube-prometheus-stack
+  prometheusRule:
+    enabled: true
+    namespace: monitoring
+    additionalLabels:
+      release: kube-prometheus-stack
+  grafanaDashboard:
+    enabled: true
+    namespace: monitoring
+    labels:
+      grafana_dashboard: "1"
 ~~~
 
 The PodMonitor selects FDR pods in the release namespace directly, so it does
-not require a Service. Restrict HTTP ingress to monitoring pods with:
+not require a Service. The PrometheusRule adds alerts for readiness, missing
+workers, trace loss, write errors, storage-protection drops, and probe failures.
+The dashboard ConfigMap is discovered by Grafana's standard dashboard sidecar
+and uses the Prometheus datasource UID <code>prometheus</code>.
+
+All three resources are disabled by default, so the chart installs without
+Prometheus Operator or Grafana. Their target namespaces must already exist when
+they differ from the FDR release namespace.
+
+Restrict HTTP ingress to monitoring pods with:
 
 ~~~yaml
 networkPolicy:
@@ -152,6 +171,9 @@ An empty <code>podSelector</code> permits all pods in the selected namespace.
 NetworkPolicy enforcement requires a compatible cluster network plugin.
 Verify kubelet health probes after enabling the policy because node-originated
 probe handling differs across network plugins.
+
+For a complete pinned example, including Prometheus and Grafana installation,
+see the [local Kind lab](../../kind/README.md).
 
 ## Uninstall
 

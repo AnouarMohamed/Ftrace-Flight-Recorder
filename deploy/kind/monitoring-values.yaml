@@ -1,0 +1,67 @@
+# Pinned lab profile for kube-prometheus-stack 88.5.4.
+# It keeps only the components needed to scrape FDR, evaluate its rules, and
+# render its Grafana dashboard.
+defaultRules:
+  create: false
+
+alertmanager:
+  enabled: false
+
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: fdr-lab
+  defaultDashboardsEnabled: false
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
+      isDefaultDatasource: true
+      uid: prometheus
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeStateMetrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+
+prometheusOperator:
+  admissionWebhooks:
+    enabled: false
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    evaluationInterval: 15s
+    scrapeInterval: 15s
+    retention: 2h
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi

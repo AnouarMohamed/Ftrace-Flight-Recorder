@@ -77,6 +77,15 @@ monitoring:
     interval: 30s
     scrapeTimeout: 10s
     additionalLabels: {}
+  prometheusRule:
+    enabled: false
+    namespace: ""
+    additionalLabels: {}
+  grafanaDashboard:
+    enabled: false
+    namespace: ""
+    labels:
+      grafana_dashboard: "1"
 
 networkPolicy:
   enabled: false

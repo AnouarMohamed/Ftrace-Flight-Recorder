@@ -125,8 +125,13 @@ Signals:
 ## HTTP endpoints
 
 - <code>/healthz</code> — parent event loop is alive
-- <code>/readyz</code> — configured probes and collectors are healthy
+- <code>/readyz</code> — probes, collectors, and trace integrity are healthy
 - <code>/metrics</code> — Prometheus text exposition
+
+Trace integrity metrics include cumulative ring-buffer overwrites, dropped
+events, and commit overruns from every instance's per-CPU ftrace statistics.
+New trace loss makes readiness false until a successful configuration reload or
+restart, so an incomplete capture cannot remain silently green.
 
 The default listener is <code>127.0.0.1:9119</code>. Authentication and TLS
 are deliberately out of scope; use a firewall, sidecar, or reverse proxy before
@@ -149,6 +154,10 @@ See the [Kustomize guide](deploy/kubernetes/README.md) and
 liveness, and readiness probes. Kustomize hashes generated configuration names,
 and Helm annotates the pod template with a configuration checksum, so config
 changes roll the DaemonSet automatically.
+
+The [local Kind lab](deploy/kind/README.md) builds the current image, captures
+real host-kernel scheduler events, and verifies Prometheus discovery, alert
+rules, and the provisioned Grafana dashboard.
 
 ## Development
 

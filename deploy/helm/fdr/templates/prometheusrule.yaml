@@ -1,0 +1,60 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "fdr.fullname" . }}
+  namespace: {{ default .Release.Namespace .Values.monitoring.prometheusRule.namespace }}
+  labels:
+    {{- include "fdr.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: fdr.rules
+      rules:
+        - alert: FDRNotReady
+          expr: fdr_ready == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: FDR reports degraded readiness
+            description: Check probe failures, trace loss, and collector state for this target.
+        - alert: FDRWorkerMissing
+          expr: fdr_workers_alive < fdr_instances
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: An FDR collector worker is missing
+            description: Fewer workers are alive than configured trace instances.
+        - alert: FDRTraceDataLoss
+          expr: increase(fdr_trace_overruns_total[5m]) + increase(fdr_trace_dropped_events_total[5m]) + increase(fdr_trace_commit_overruns_total[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: FDR observed kernel trace data loss
+            description: The capture is incomplete. Review event volume, buffer sizing, and collector resources.
+        - alert: FDRWriteError
+          expr: increase(fdr_write_errors_total[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: FDR failed to persist trace data
+            description: Inspect the destination filesystem, permissions, and pod logs.
+        - alert: FDRStorageProtectionDrop
+          expr: increase(fdr_bytes_dropped_total[5m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: FDR dropped data to protect free disk space
+            description: The configured minfree threshold is active and the capture is incomplete.
+        - alert: FDRProbeFailure
+          expr: increase(fdr_probe_failures_total[5m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: FDR could not configure a trace probe
+            description: Confirm that the event and filter exist on the selected node kernel.
+{{- end }}
