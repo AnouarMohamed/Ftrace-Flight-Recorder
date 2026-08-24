@@ -4,6 +4,8 @@
 
 #include "fdr.h"
 
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -14,6 +16,170 @@
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+static void
+fdr_add_saturating(uint64_t *total, uint64_t value)
+{
+	if (UINT64_MAX - *total < value)
+		*total = UINT64_MAX;
+	else
+		*total += value;
+}
+
+static int
+fdr_trace_parse_stats(const char *path, uint64_t *overruns,
+    uint64_t *dropped, uint64_t *commit_overruns)
+{
+	char line[256];
+	FILE *fp;
+	int found_overruns = 0;
+	int found_dropped = 0;
+	int found_commit = 0;
+
+	fp = fopen(path, "re");
+	if (fp == NULL)
+		return -1;
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		uint64_t value;
+
+		if (sscanf(line, "overrun: %" SCNu64, &value) == 1) {
+			*overruns = value;
+			found_overruns = 1;
+		} else if (sscanf(line, "dropped events: %" SCNu64,
+		    &value) == 1) {
+			*dropped = value;
+			found_dropped = 1;
+		} else if (sscanf(line, "commit overrun: %" SCNu64,
+		    &value) == 1) {
+			*commit_overruns = value;
+			found_commit = 1;
+		}
+	}
+	if (ferror(fp) || fclose(fp) != 0)
+		return -1;
+	return found_overruns && found_dropped && found_commit ? 0 : -1;
+}
+
+static int
+fdr_cpu_dir_name(const char *name)
+{
+	const unsigned char *cursor;
+
+	if (strncmp(name, "cpu", 3) != 0 || name[3] == '\0')
+		return 0;
+	for (cursor = (const unsigned char *)name + 3; *cursor != '\0'; cursor++) {
+		if (!isdigit(*cursor))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
+    uint64_t *dropped, uint64_t *commit_overruns)
+{
+	char per_cpu[FDR_PATH_MAX];
+	DIR *dir;
+	struct dirent *entry;
+	int cpus = 0;
+	int read_error = 0;
+
+	*overruns = 0;
+	*dropped = 0;
+	*commit_overruns = 0;
+	if (fdr_join_path(per_cpu, sizeof(per_cpu), insp->dname, "per_cpu") != 0)
+		return -1;
+	dir = opendir(per_cpu);
+	if (dir == NULL)
+		return -1;
+	for (;;) {
+		char cpu_dir[FDR_PATH_MAX];
+		char stats[FDR_PATH_MAX];
+		uint64_t cpu_overruns = 0;
+		uint64_t cpu_dropped = 0;
+		uint64_t cpu_commit = 0;
+
+		errno = 0;
+		entry = readdir(dir);
+		if (entry == NULL) {
+			read_error = errno;
+			break;
+		}
+		if (!fdr_cpu_dir_name(entry->d_name))
+			continue;
+		if (fdr_join_path(cpu_dir, sizeof(cpu_dir), per_cpu,
+		    entry->d_name) != 0 ||
+		    fdr_join_path(stats, sizeof(stats), cpu_dir, "stats") != 0 ||
+		    fdr_trace_parse_stats(stats, &cpu_overruns, &cpu_dropped,
+		    &cpu_commit) != 0)
+			continue;
+		fdr_add_saturating(overruns, cpu_overruns);
+		fdr_add_saturating(dropped, cpu_dropped);
+		fdr_add_saturating(commit_overruns, cpu_commit);
+		cpus++;
+	}
+	if (read_error != 0) {
+		(void)closedir(dir);
+		return -1;
+	}
+	if (closedir(dir) != 0)
+		return -1;
+	return cpus > 0 ? 0 : -1;
+}
+
+static uint64_t
+fdr_trace_counter_delta(uint64_t current, uint64_t *previous)
+{
+	uint64_t delta = current >= *previous ? current - *previous : current;
+
+	*previous = current;
+	return delta;
+}
+
+int
+fdr_trace_sample_loss(struct fdr_instance *insp)
+{
+	uint64_t overruns;
+	uint64_t dropped;
+	uint64_t commit_overruns;
+	uint64_t overrun_delta;
+	uint64_t dropped_delta;
+	uint64_t commit_delta;
+
+	if (fdr.metrics == NULL ||
+	    fdr_trace_read_loss(insp, &overruns, &dropped,
+	    &commit_overruns) != 0)
+		return -1;
+	overrun_delta = fdr_trace_counter_delta(overruns,
+	    &insp->last_trace_overruns);
+	dropped_delta = fdr_trace_counter_delta(dropped,
+	    &insp->last_trace_dropped);
+	commit_delta = fdr_trace_counter_delta(commit_overruns,
+	    &insp->last_trace_commit_overruns);
+	fdr_metrics_add(&fdr.metrics->trace_overruns, overrun_delta);
+	fdr_metrics_add(&fdr.metrics->trace_dropped_events, dropped_delta);
+	fdr_metrics_add(&fdr.metrics->trace_commit_overruns, commit_delta);
+	if (overrun_delta == 0 && dropped_delta == 0 && commit_delta == 0)
+		return 0;
+	fdr_metrics_store_int(&fdr.metrics->healthy, 0);
+	if (!insp->trace_loss_reported) {
+		fdr_warn("trace data loss detected for instance %s "
+		    "(overruns=%" PRIu64 ", dropped=%" PRIu64
+		    ", commit-overruns=%" PRIu64 ")",
+		    insp->iname, overruns, dropped, commit_overruns);
+		insp->trace_loss_reported = 1;
+	}
+	return 1;
+}
+
+void
+fdr_trace_sample_all_loss(void)
+{
+	struct fdr_instance *insp;
+
+	for (insp = fdr.instances; insp != NULL; insp = insp->next)
+		(void)fdr_trace_sample_loss(insp);
+}
 
 static int
 fdr_write_control(const char *path, const char *value)

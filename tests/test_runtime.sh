@@ -47,6 +47,10 @@ curl --fail --silent "http://127.0.0.1:$port/readyz" |
     grep -q '^ready$'
 curl --fail --silent "http://127.0.0.1:$port/metrics" |
     grep -q '^fdr_instances 1$'
+curl --fail --silent "http://127.0.0.1:$port/metrics" |
+    grep -q '^fdr_trace_overruns_total 0$'
+curl --fail --silent "http://127.0.0.1:$port/metrics" |
+    grep -q '^fdr_trace_dropped_events_total 0$'
 
 kill -HUP "$pid"
 attempt=0

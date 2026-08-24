@@ -72,8 +72,12 @@ struct fdr_instance {
 	char dname[FDR_PATH_MAX];
 	uint64_t bufsize_kb;
 	uint64_t maxsize;       /* UINT64_MAX means unlimited. */
+	uint64_t last_trace_overruns;
+	uint64_t last_trace_dropped;
+	uint64_t last_trace_commit_overruns;
 	int minfree;
 	int has_saveto;
+	int trace_loss_reported;
 };
 
 /* Shared across the parent and workers through MAP_SHARED. */
@@ -84,6 +88,9 @@ struct fdr_metrics {
 	uint64_t probe_failures;
 	uint64_t write_errors;
 	uint64_t reloads;
+	uint64_t trace_overruns;
+	uint64_t trace_dropped_events;
+	uint64_t trace_commit_overruns;
 	int instances;
 	int workers_alive;
 	int healthy;
@@ -144,6 +151,8 @@ int fdr_trace_create_instance(struct fdr_instance *insp,
 int fdr_trace_load_module(const struct fdr_item *item);
 int fdr_trace_set_probe(struct fdr_instance *insp,
     const struct fdr_item *item);
+int fdr_trace_sample_loss(struct fdr_instance *insp);
+void fdr_trace_sample_all_loss(void);
 
 int fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item);
 

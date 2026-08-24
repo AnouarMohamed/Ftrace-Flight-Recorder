@@ -15,7 +15,10 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
+
+#define FDR_TRACE_STATS_INTERVAL 5
 
 static int
 fdr_http_listen(const char *address, int port)
@@ -142,6 +145,15 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_reloads_total Successful configuration reloads\n"
 		    "# TYPE fdr_reloads_total counter\n"
 		    "fdr_reloads_total %" PRIu64 "\n"
+		    "# HELP fdr_trace_overruns_total Events lost by ring-buffer overwrite\n"
+		    "# TYPE fdr_trace_overruns_total counter\n"
+		    "fdr_trace_overruns_total %" PRIu64 "\n"
+		    "# HELP fdr_trace_dropped_events_total New events dropped by tracefs\n"
+		    "# TYPE fdr_trace_dropped_events_total counter\n"
+		    "fdr_trace_dropped_events_total %" PRIu64 "\n"
+		    "# HELP fdr_trace_commit_overruns_total Nested writes lost by tracefs\n"
+		    "# TYPE fdr_trace_commit_overruns_total counter\n"
+		    "fdr_trace_commit_overruns_total %" PRIu64 "\n"
 		    "# HELP fdr_instances Configured instances\n"
 		    "# TYPE fdr_instances gauge\n"
 		    "fdr_instances %d\n"
@@ -157,6 +169,9 @@ fdr_http_handle(int cfd)
 		    m ? fdr_metrics_load_u64(&m->probe_failures) : 0,
 		    m ? fdr_metrics_load_u64(&m->write_errors) : 0,
 		    m ? fdr_metrics_load_u64(&m->reloads) : 0,
+		    m ? fdr_metrics_load_u64(&m->trace_overruns) : 0,
+		    m ? fdr_metrics_load_u64(&m->trace_dropped_events) : 0,
+		    m ? fdr_metrics_load_u64(&m->trace_commit_overruns) : 0,
 		    m ? fdr_metrics_load_int(&m->instances) : 0,
 		    m ? fdr_metrics_load_int(&m->workers_alive) : 0,
 		    ready ? 1 : 0);
@@ -173,6 +188,7 @@ fdr_http_serve(const char *address, int port)
 {
 	int listener = -1;
 	struct pollfd pfd;
+	time_t next_trace_stats = 0;
 
 	if (port != 0) {
 		listener = fdr_http_listen(address, port);
@@ -192,6 +208,7 @@ fdr_http_serve(const char *address, int port)
 	pfd.events = POLLIN;
 	while (!fdr.want_exit) {
 		int poll_rc;
+		time_t now;
 
 		if (fdr.got_sigchld)
 			fdr_process_reap_children();
@@ -202,6 +219,11 @@ fdr_http_serve(const char *address, int port)
 		}
 		if (fdr.want_exit)
 			break;
+		now = time(NULL);
+		if (now != (time_t)-1 && now >= next_trace_stats) {
+			fdr_trace_sample_all_loss();
+			next_trace_stats = now + FDR_TRACE_STATS_INTERVAL;
+		}
 
 		pfd.revents = 0;
 		poll_rc = poll(listener >= 0 ? &pfd : NULL,
