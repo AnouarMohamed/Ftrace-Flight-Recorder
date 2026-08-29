@@ -2,6 +2,10 @@
 
 This chart installs FDR as a privileged per-node DaemonSet.
 
+Before production use, read the [configuration
+reference](../../../docs/configuration.md), [operations
+guide](../../../docs/operations.md), and [security boundary](../../../SECURITY.md).
+
 ~~~sh
 helm upgrade --install fdr deploy/helm/fdr \
   --namespace fdr-system --create-namespace
@@ -148,6 +152,11 @@ not require a Service. The PrometheusRule adds alerts for readiness, missing
 workers, trace loss, write errors, storage-protection drops, and probe failures.
 The dashboard ConfigMap is discovered by Grafana's standard dashboard sidecar
 and uses the Prometheus datasource UID <code>prometheus</code>.
+
+The dashboard is a quick status view, not the evidence itself. Preserve raw
+metrics, logs, configuration, and capture files during an incident. The
+[operations guide](../../../docs/operations.md#incident-evidence-workflow)
+explains the collection order and each alert's meaning.
 
 All three resources are disabled by default, so the chart installs without
 Prometheus Operator or Grafana. Their target namespaces must already exist when

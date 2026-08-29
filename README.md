@@ -1,198 +1,186 @@
 # Flight Data Recorder
 
-FDR is a small Linux daemon that creates isolated ftrace instances, enables
-configured kernel tracepoints, and optionally persists the event stream. It is
-intended for low-level incident evidence: scheduler, network, filesystem, and
-other kernel events that are useful after a failure.
+FDR is a small Linux daemon that continuously records selected kernel ftrace
+events into bounded files. It is designed to preserve evidence for failures
+that are difficult to reproduce, such as scheduler stalls, network errors,
+filesystem problems, and kernel subsystem failures.
 
-FDR runs as root and the Kubernetes deployment is privileged because tracefs is
-a host-kernel control interface. Treat write access to <code>/etc/fdr.d</code>
-or the Kubernetes ConfigMap as equivalent to administrative access.
+FDR is not a tracing user interface or a general-purpose profiler. It is the
+always-on collection layer that keeps recent kernel events available for later
+inspection.
 
-## Features
+## Why use FDR?
 
-- One isolated worker and ftrace instance per configuration file
-- Strict configuration validation without requiring root (<code>fdrd -n</code>)
-- Disk free-space protection that drops trace data before filling the disk
-- Size-based rotation through logrotate, with a preserved <code>.1</code> fallback
-- Safe, transactional configuration reload on SIGHUP
-- Worker supervision: a failed persistent collector stops the parent so the
-  service manager can restart it
-- HTTP liveness, readiness, and Prometheus metrics
-- systemd, OCI image, Kustomize, and Helm deployment support
+Kernel failures often disappear before an operator can start a trace. FDR
+starts the chosen tracepoints in advance, isolates each configuration in its
+own tracefs instance, and continuously drains events to disk.
 
-## Configuration
+Use FDR when you need:
 
-FDR reads regular <code>*.conf</code> files directly under
-<code>/etc/fdr.d</code>, in lexical order. Each file defines exactly one
-instance, and its first directive must be <code>instance</code>. Blank lines
-and lines whose first non-space character is <code>#</code> are ignored.
-Inline comments are not supported because probe filters may contain spaces.
+- a rolling record of specific kernel tracepoints;
+- bounded capture files that will not intentionally fill a filesystem;
+- explicit evidence-integrity signals when the recorder cannot keep up;
+- one recorder per Linux host or Kubernetes node;
+- a small daemon with no database or external control plane.
 
-### instance name [buffer-size]
+Do not use FDR as:
 
-Creates an isolated ftrace instance. Names may contain letters, digits,
-<code>.</code>, <code>_</code>, and <code>-</code>.
+- a replacement for perf, eBPF profilers, or interactive tracing tools;
+- a trace visualization or long-term storage system;
+- an unprivileged container workload;
+- proof that a capture is complete without checking readiness and loss metrics.
 
-<code>buffer-size</code> is a byte size and accepts <code>k</code>,
-<code>m</code>, or <code>g</code> suffixes, with optional
-<code>iB</code>/<code>B</code>. FDR converts it to the KiB-per-CPU unit
-required by the kernel's <code>buffer_size_kb</code> interface. Be
-conservative: the allocation is made for every CPU.
+## How it works
 
-### modprobe module-name
+1. FDR reads regular `*.conf` files from `/etc/fdr.d`.
+2. Each file creates one isolated tracefs instance and one worker process.
+3. The worker enables the configured tracepoints and, when `saveto` is present,
+   drains `trace_pipe` into a mode-0600 file.
+4. The parent supervises workers, handles safe reloads, samples tracefs loss
+   counters, and exposes health, readiness, and Prometheus metrics.
 
-Loads a required module without invoking a shell.
+FDR normally runs as root because tracefs controls the host kernel. Its
+Kubernetes deployment is privileged for the same reason.
 
-### enable subsystem/event [filter]
+## Quick start on a Linux host
 
-Applies the optional ftrace filter first, then enables the event. Use
-<code>subsystem/all</code> to enable a complete subsystem.
+Requirements:
 
-### disable subsystem/event
+- Linux with tracefs mounted at `/sys/kernel/tracing`;
+- a C11 compiler and GNU Make;
+- `kmod` only for configurations that use `modprobe`;
+- `logrotate` only for external rotation policies.
 
-Disables an event. <code>subsystem/all</code> disables the complete subsystem.
+Build and test:
 
-### minfree percentage
+```sh
+make check
+make
+```
 
-Drops incoming trace data while available space on the destination filesystem
-is at or below this percentage. The value must be from 1 through 100 and
-defaults to 5.
+Install a minimal scheduler capture:
 
-### saveto absolute-path [maximum-size]
+```sh
+sudo make install
+sudo install -d -m 0700 /var/log/fdr
+sudo install -m 0644 deploy/kubernetes/fdr.conf /etc/fdr.d/node.conf
+sudo fdrd -n -c /etc/fdr.d
+sudo systemctl enable --now fdr
+```
 
-Continuously appends trace output to a regular file created with mode 0600.
-There may be one <code>saveto</code> per instance.
+Confirm that the service is operating and preserving events:
 
-Without <code>maximum-size</code>, the file is unlimited except for
-<code>minfree</code>. At the limit, FDR runs
-<code>/usr/sbin/logrotate -f /etc/logrotate.d/&lt;instance&gt;</code> when
-that configuration exists. Otherwise it preserves the previous file as
-<code>&lt;absolute-path&gt;.1</code> and starts a new file. Existing logs are
-never truncated at startup.
+```sh
+systemctl status --no-pager fdr
+curl --fail http://127.0.0.1:9119/healthz
+curl --fail http://127.0.0.1:9119/readyz
+curl --silent http://127.0.0.1:9119/metrics
+sudo grep -m 1 sched_switch /var/log/fdr/node.log
+```
 
-Without <code>saveto</code>, FDR configures the instance and the setup worker
-exits successfully. Data can then be consumed manually from:
+Expected endpoint bodies are `ok` and `ready`. The metrics should show
+`fdr_ready 1` and zero new trace-loss counters.
 
-~~~text
-/sys/kernel/tracing/instances/<name>/trace_pipe
-~~~
+If tracefs is not mounted, review the host policy before mounting it. On a
+disposable or approved system the usual command is:
 
-Example:
+```sh
+sudo mount -t tracefs tracefs /sys/kernel/tracing
+```
 
-~~~text
+## Minimal configuration
+
+```text
 instance node 16m
 enable sched/sched_switch
-enable sched/sched_wakeup target_cpu >= 0
+enable sched/sched_wakeup
 minfree 5
 saveto /var/log/fdr/node.log 64m
-~~~
+```
 
-## Running on a Linux host
+This creates `/sys/kernel/tracing/instances/node`, allocates approximately
+16 MiB of trace buffer per CPU, enables two scheduler events, and preserves a
+bounded capture at `/var/log/fdr/node.log`.
 
-Requirements are a C11 compiler, GNU Make, tracefs, and optionally
-<code>kmod</code> and <code>logrotate</code>.
+Always validate syntax before activation:
 
-~~~sh
-make check
-sudo make install
-sudo install -m 0644 samples/nfs /etc/fdr.d/nfs.conf
-sudo systemctl enable --now fdr
-~~~
-
-The systemd service runs in the foreground, restarts on collector failure, and
-binds its HTTP endpoint to <code>127.0.0.1:9119</code>.
-
-Useful commands:
-
-~~~sh
+```sh
 fdrd -n -c /etc/fdr.d
-fdrd -f -j
-fdrd -f -a 0.0.0.0 -p 9119
-fdrd -f -p 0
-fdrd -V
-systemctl reload fdr
-~~~
+```
 
-Signals:
+See the [configuration reference](docs/configuration.md) before selecting
+events, filters, buffer sizes, storage limits, or modules.
 
-- SIGHUP to the parent validates and atomically activates current config files.
-  Invalid new configuration is rejected and existing workers stay active.
-- SIGUSR1 to all <code>fdrd</code> processes tells collectors to reopen their
-  log files. The sample logrotate configuration uses this signal.
-- SIGTERM and SIGINT stop workers and remove trace instances.
+## Choose a deployment
 
-## HTTP endpoints
+| Environment | Recommended path | Notes |
+|---|---|---|
+| Linux host with systemd | `sudo make install` | HTTP binds to loopback by default |
+| Kubernetes with plain manifests | [Kustomize deployment](deploy/kubernetes/README.md) | Privileged DaemonSet, one pod per selected node |
+| Kubernetes with Helm | [Helm chart](deploy/helm/fdr/README.md) | Optional PodMonitor, alerts, dashboard, and NetworkPolicy |
+| Local integration test | [Kind observability lab](deploy/kind/README.md) | Uses the host kernel and writable host tracefs |
+| Kernel compatibility test | [Disposable VM matrix](tests/vm/README.md) | Runs controlled load only inside disposable guests |
 
-- <code>/healthz</code> — parent event loop is alive
-- <code>/readyz</code> — probes, collectors, and trace integrity are healthy
-- <code>/metrics</code> — Prometheus text exposition
+## Health and evidence integrity
 
-Trace integrity metrics include cumulative ring-buffer overwrites, dropped
-events, and commit overruns from every instance's per-CPU ftrace statistics.
-New trace loss makes readiness false until a successful configuration reload or
-restart, so an incomplete capture cannot remain silently green.
+FDR exposes an unauthenticated IPv4 HTTP listener on `127.0.0.1:9119` by
+default:
 
-The default listener is <code>127.0.0.1:9119</code>. Authentication and TLS
-are deliberately out of scope; use a firewall, sidecar, or reverse proxy before
-exposing it outside a trusted network.
+- `/healthz` says whether the parent event loop is alive;
+- `/readyz` says whether the active recorder is trustworthy enough to use;
+- `/metrics` exposes cumulative Prometheus counters and current gauges.
 
-## Kubernetes
+Readiness becomes false after probe failures, persistent collector failures,
+write failures, or newly observed kernel trace loss. A successful configuration
+reload or process restart returns readiness to a fresh state, but cannot recover
+events that were already lost. Preserve the current capture and metrics before
+reloading during an incident.
 
-FDR runs once per node and mounts the host tracefs and
-<code>/var/log/fdr</code>.
+See the [operations guide](docs/operations.md) for the complete metric
+reference, reload behavior, incident workflow, log rotation, and troubleshooting.
 
-~~~sh
-kubectl apply -k deploy/kubernetes
+## Security boundary
 
-helm upgrade --install fdr deploy/helm/fdr \
-  --namespace fdr-system --create-namespace
-~~~
+FDR controls host-kernel tracing and should be treated as an administrative
+component:
 
-See the [Kustomize guide](deploy/kubernetes/README.md) and
-[Helm guide](deploy/helm/fdr/README.md). Both deployments include startup,
-liveness, and readiness probes. Kustomize hashes generated configuration names,
-and Helm annotates the pod template with a configuration checksum, so config
-changes roll the DaemonSet automatically.
+- restrict write access to `/etc/fdr.d` and Kubernetes ConfigMaps;
+- restrict who can change the image, arguments, host paths, or enabled probes;
+- do not expose the HTTP listener to an untrusted network without an
+  authenticated proxy and network controls;
+- review tracepoints and filters for performance and data sensitivity;
+- enable host module access only when a reviewed configuration requires it.
 
-The [local Kind lab](deploy/kind/README.md) builds the current image, captures
-real host-kernel scheduler events, and verifies Prometheus discovery, alert
-rules, and the provisioned Grafana dashboard.
+Compromise of the privileged Kubernetes pod must be treated as compromise of
+the node. Read [SECURITY.md](SECURITY.md) before production deployment.
 
-The [disposable VM harness](tests/vm/README.md) validates systemd lifecycle and
-controlled trace-loss behavior across installed kernels, with Ubuntu LTS and
-single-node k3s profiles for release qualification. The latest recorded
-two-kernel pass is in
-[`docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/`](docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/report.md).
+## Documentation
 
-## Development
+Start at the [documentation index](docs/README.md), or go directly to:
 
-~~~sh
-make check
-make sanitize
-helm lint deploy/helm/fdr
-kubectl kustomize deploy/kubernetes >/dev/null
-~~~
+- [Getting started](docs/getting-started.md)
+- [Configuration reference](docs/configuration.md)
+- [Operations and troubleshooting](docs/operations.md)
+- [Kustomize deployment](deploy/kubernetes/README.md)
+- [Helm deployment and observability](deploy/helm/fdr/README.md)
+- [Validation evidence](docs/validation/README.md)
+- [Changelog](CHANGELOG.md)
+- [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
 
-The tests use a temporary fake tracefs and never modify the host kernel. A final
-release should also be exercised on a disposable Linux node against the kernel
-versions it intends to support.
+The installed manual page is also available with `man 8 fdrd`.
 
-See [ROADMAP.md](ROADMAP.md) for the ordered v1.5 work: Kubernetes hardening,
-real-kernel validation, performance and event-loss benchmarks, triggered
-incident capture, interoperability, and the release definition of done.
+## Current validation status
 
-| File | Responsibility |
-|---|---|
-| <code>main.c</code> | CLI and lifecycle |
-| <code>config.c</code> | Strict, reloadable configuration |
-| <code>trace.c</code> | Trace instances, modules, probes, filters |
-| <code>harvest.c</code> | Trace consumption, disk limits, rotation |
-| <code>process.c</code> | Workers, signals, supervision, reload |
-| <code>http.c</code> | Health, readiness, metrics, parent event loop |
-| <code>runtime.c</code> | Logging and shared metrics |
-| <code>util.c</code> | Checked strings, sizes, and I/O |
+Recorded evidence currently includes:
+
+- a complete Kind lifecycle run on Linux 7.1.8 with Prometheus and Grafana;
+- disposable KVM systemd and controlled-loss passes on Linux 7.0.12 and 7.1.8;
+- fake-tracefs unit and runtime tests in ordinary CI.
+
+Ubuntu LTS and single-node k3s release-qualification runs remain open. The
+evidence index distinguishes completed checks from remaining work.
 
 ## License
 
-Universal Permissive License 1.0; see [LICENSE.txt](LICENSE.txt).
+Universal Permissive License 1.0. See [LICENSE.txt](LICENSE.txt).

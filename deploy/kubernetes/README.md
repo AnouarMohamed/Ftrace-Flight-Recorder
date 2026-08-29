@@ -3,6 +3,10 @@
 FDR captures host-kernel ftrace events. The manifests deploy a privileged
 DaemonSet, one pod per node, with host tracefs mounted read/write.
 
+Before production use, read the [configuration
+reference](../../docs/configuration.md), [operations
+guide](../../docs/operations.md), and [security boundary](../../SECURITY.md).
+
 ## Requirements
 
 - Linux nodes with tracefs mounted at <code>/sys/kernel/tracing</code>
@@ -98,6 +102,9 @@ curl http://127.0.0.1:9119/metrics
 The manifests expose HTTP only as a container port; they do not create a
 cluster-wide Service. The Helm chart can optionally create a PodMonitor and an
 ingress NetworkPolicy for Prometheus Operator deployments.
+
+For endpoint semantics, every metric, alert interpretation, and incident
+collection commands, see the [operations guide](../../docs/operations.md).
 
 ## Security
 

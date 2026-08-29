@@ -20,13 +20,20 @@ with unrelated refactoring.
 
 1. Fork this repository.
 2. Create a branch for your change.
-3. Make your changes and update documentation if needed.
+3. Make your changes and update user, operator, or deployment documentation
+   when behavior changes. Add an entry under `Unreleased` in
+   [CHANGELOG.md](./CHANGELOG.md) for a user-visible change.
 4. Run <code>make check</code>, <code>make sanitize</code>,
-   <code>helm lint deploy/helm/fdr</code>, and
+   <code>helm lint --strict deploy/helm/fdr</code>, and
    <code>kubectl kustomize deploy/kubernetes</code>.
 5. Commit with a clear message. Signed-off commits (<code>git commit -s</code>) are
    appreciated but not required.
 6. Open a pull request that explains what changed and why, and how to verify it.
+
+Real-kernel or Kubernetes claims need evidence appropriate to their scope. Use
+the [validation guide](./docs/validation/README.md) to choose a test layer and
+record the environment, revision, pass criteria, metrics, and known limits.
+Deliberate trace overload belongs only in a disposable virtual machine.
 
 ## Code of conduct
 

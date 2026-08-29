@@ -64,7 +64,9 @@ Implementation status in the current development tree:
 - [x] Add optional PodMonitor and ingress NetworkPolicy templates.
 - [x] Validate the hardened deployment in a disposable Kind cluster against a
       real host kernel and retain the run evidence.
-- [ ] Repeat real-kernel validation on the disposable multi-kernel VM matrix.
+- [x] Validate systemd and controlled-loss behavior in disposable VMs on the
+      installed Linux 7.0.12 and 7.1.8 kernels.
+- [ ] Complete the Ubuntu LTS and Noble single-node k3s release matrix.
 - [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
       readiness reflect observed loss.
 - [x] Validate trace-loss behavior under controlled load.
@@ -233,7 +235,7 @@ trace overruns with degraded readiness, is stored in
 [`docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/`](docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/report.md).
 It proves the two-kernel and controlled-loss mechanics. The Ubuntu LTS profiles
 and their single-node k3s run remain release-qualification work, so the broader
-multi-kernel matrix item above stays open.
+release matrix item above stays open.
 
 ### CI strategy
 

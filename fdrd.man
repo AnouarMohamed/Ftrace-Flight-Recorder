@@ -91,6 +91,9 @@ Liveness of the parent event loop.
 .TP
 .B /readyz
 Readiness of configured probes, persistent collectors, and trace integrity.
+Storage-protection drops do not change readiness; monitor
+.B fdr_bytes_dropped_total
+separately.
 .TP
 .B /metrics
 Prometheus text metrics, including bytes written or dropped, rotations, probe
@@ -99,8 +102,10 @@ events. Newly observed trace loss makes readiness false.
 .SH SIGNALS
 .TP
 .B SIGHUP
-Validate current configuration files and atomically replace active workers.
-Invalid new configuration is rejected without disturbing current workers.
+Validate the complete configuration directory. Invalid new configuration is
+rejected without disturbing current workers. A valid reload stops the current
+workers and trace instances before creating the replacement set, so it can
+briefly interrupt capture.
 .TP
 .B SIGUSR1
 Collector processes reopen their output files. Send it to all processes in the

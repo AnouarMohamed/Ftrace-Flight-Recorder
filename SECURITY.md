@@ -41,3 +41,7 @@ files must not be writable by untrusted users.
 
 Review enabled probes for performance and data sensitivity before production
 use. Sample configurations are examples, not universal safe defaults.
+
+Operational hardening and incident-preservation guidance is in the
+[operations guide](./docs/operations.md). Directive-specific constraints are
+documented in the [configuration reference](./docs/configuration.md).
