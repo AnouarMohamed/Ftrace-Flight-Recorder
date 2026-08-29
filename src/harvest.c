@@ -106,7 +106,6 @@ static int
 fdr_rotate_logs(const struct fdr_instance *insp, const char *path)
 {
 	char backup[FDR_PATH_MAX];
-	struct stat st;
 	int result;
 
 	result = fdr_run_logrotate(insp);
@@ -118,14 +117,9 @@ fdr_rotate_logs(const struct fdr_instance *insp, const char *path)
 		fdr_warn("rotation path is too long for %s", path);
 		return -1;
 	}
-	if (stat(path, &st) != 0) {
+	if (rename(path, backup) != 0) {
 		if (errno == ENOENT)
 			return 0;
-		fdr_warn("cannot inspect %s for rotation: %s", path,
-		    strerror(errno));
-		return -1;
-	}
-	if (rename(path, backup) != 0) {
 		fdr_warn("cannot rotate %s to %s: %s", path, backup,
 		    strerror(errno));
 		return -1;

@@ -47,6 +47,7 @@ All notable changes to this project are documented here. The format follows
 - Reduce text-collector hot-path work with a 64 KiB minimum read allocation,
   cached bounded-output size, and byte-budgeted free-space checks while keeping
   the text format, append behavior, size limit, and drop accounting intact.
+- Remove a redundant destination metadata lookup from fallback rotation.
 - Parse per-CPU trace-loss statistics with bounded direct reads and checked
   integer conversion instead of formatted stdio scanning.
 
