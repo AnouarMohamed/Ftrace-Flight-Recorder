@@ -1,0 +1,4 @@
+cgroup=cgroup2
+rootfs=ext4
+cpus=4
+systemd 252 (252.39-1~deb12u1)

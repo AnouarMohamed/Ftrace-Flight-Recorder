@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FDR VM validation summary</title>
+<style>
+  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; padding: 64px; color: #e8edf7;
+    background: radial-gradient(circle at 80% 0, #173a4b 0, transparent 34%), #09121c; }
+  main { max-width: 1240px; margin: auto; }
+  .eyebrow { color: #72e6bd; font: 700 14px/1.2 ui-monospace, monospace; letter-spacing: .14em; }
+  h1 { margin: 14px 0 12px; font-size: 46px; letter-spacing: -.035em; }
+  .lede { color: #aab8ca; font-size: 19px; margin-bottom: 38px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  article { padding: 27px; border: 1px solid #274356; border-radius: 18px;
+    background: linear-gradient(145deg, rgba(25,47,63,.94), rgba(13,27,40,.94)); }
+  h2 { margin: 0; font-size: 22px; font-family: ui-monospace, monospace; }
+  .pass { float: right; padding: 5px 10px; color: #071b14; background: #72e6bd;
+    border-radius: 999px; font-size: 12px; font-weight: 800; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
+  .metric { padding: 15px; border-radius: 12px; background: #091925; }
+  .metric b { display: block; color: #f7fbff; font-size: 24px; }
+  .metric span { color: #91a5b9; font-size: 13px; }
+  .normal b { color: #72e6bd; } .loss b { color: #ffbd66; }
+  footer { display: flex; gap: 30px; margin-top: 24px; padding: 20px 2px;
+    color: #91a5b9; font-size: 14px; }
+  footer strong { color: #dce7f3; }
+</style>
+<main>
+  <div class="eyebrow">FTRACE FLIGHT RECORDER · DISPOSABLE KVM EVIDENCE</div>
+  <h1>Two kernels. Real tracefs. Deliberate degradation.</h1>
+  <div class="lede">Systemd lifecycle and controlled trace-loss validation · 2026-08-29</div>
+  <section class="grid">
+    <article><span class="pass">PASS</span><h2>7.0.12-100.fc43</h2>
+      <div class="metrics">
+        <div class="metric normal"><b>0</b><span>normal overruns</span></div>
+        <div class="metric normal"><b>ready</b><span>normal readiness</span></div>
+        <div class="metric loss"><b>4,416,118</b><span>controlled overruns</span></div>
+        <div class="metric loss"><b>6 sec</b><span>until degraded</span></div>
+      </div>
+    </article>
+    <article><span class="pass">PASS</span><h2>7.1.8-100.fc43</h2>
+      <div class="metrics">
+        <div class="metric normal"><b>0</b><span>normal overruns</span></div>
+        <div class="metric normal"><b>ready</b><span>normal readiness</span></div>
+        <div class="metric loss"><b>4,491,208</b><span>controlled overruns</span></div>
+        <div class="metric loss"><b>7 sec</b><span>until degraded</span></div>
+      </div>
+    </article>
+  </section>
+  <footer><span><strong>4 vCPU</strong> per guest</span><span><strong>cgroup v2</strong></span>
+    <span><strong>systemd 252.39</strong></span><span><strong>ext4</strong></span>
+    <span>source <strong>97f77d7</strong></span></footer>
+</main>
+</html>

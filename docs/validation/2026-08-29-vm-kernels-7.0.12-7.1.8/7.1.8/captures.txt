@@ -1,0 +1,2 @@
+regular file 600 98769 /var/log/fdr/vm.log
+regular file 600 523939 /var/log/fdr/vm.log.1

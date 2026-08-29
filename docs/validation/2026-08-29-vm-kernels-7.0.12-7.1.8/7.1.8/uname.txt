@@ -1,0 +1,1 @@
+Linux localhost 7.1.8-100.fc43.x86_64 #1 SMP PREEMPT_DYNAMIC Mon Aug 10 03:32:13 UTC 2026 x86_64 GNU/Linux

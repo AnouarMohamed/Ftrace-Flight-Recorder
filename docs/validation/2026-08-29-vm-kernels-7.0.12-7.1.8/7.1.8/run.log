@@ -1,0 +1,3 @@
+Running real-VM systemd lifecycle smoke
+Running controlled trace-loss scenario
+Guest validation passed on 7.1.8-100.fc43.x86_64

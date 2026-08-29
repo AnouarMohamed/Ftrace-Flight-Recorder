@@ -1,0 +1,36 @@
+# HELP fdr_bytes_written_total Bytes written to save files
+# TYPE fdr_bytes_written_total counter
+fdr_bytes_written_total 6312824
+# HELP fdr_bytes_dropped_total Bytes dropped to protect storage
+# TYPE fdr_bytes_dropped_total counter
+fdr_bytes_dropped_total 0
+# HELP fdr_rotations_total Log rotations performed
+# TYPE fdr_rotations_total counter
+fdr_rotations_total 0
+# HELP fdr_probe_failures_total Probe configuration failures
+# TYPE fdr_probe_failures_total counter
+fdr_probe_failures_total 0
+# HELP fdr_write_errors_total Log write failures
+# TYPE fdr_write_errors_total counter
+fdr_write_errors_total 0
+# HELP fdr_reloads_total Successful configuration reloads
+# TYPE fdr_reloads_total counter
+fdr_reloads_total 0
+# HELP fdr_trace_overruns_total Events lost by ring-buffer overwrite
+# TYPE fdr_trace_overruns_total counter
+fdr_trace_overruns_total 4416118
+# HELP fdr_trace_dropped_events_total New events dropped by tracefs
+# TYPE fdr_trace_dropped_events_total counter
+fdr_trace_dropped_events_total 0
+# HELP fdr_trace_commit_overruns_total Nested writes lost by tracefs
+# TYPE fdr_trace_commit_overruns_total counter
+fdr_trace_commit_overruns_total 0
+# HELP fdr_instances Configured instances
+# TYPE fdr_instances gauge
+fdr_instances 1
+# HELP fdr_workers_alive Running worker processes
+# TYPE fdr_workers_alive gauge
+fdr_workers_alive 1
+# HELP fdr_ready 1 when all configured probes are healthy
+# TYPE fdr_ready gauge
+fdr_ready 0

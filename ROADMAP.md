@@ -67,7 +67,7 @@ Implementation status in the current development tree:
 - [ ] Repeat real-kernel validation on the disposable multi-kernel VM matrix.
 - [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
       readiness reflect observed loss.
-- [ ] Validate trace-loss behavior under controlled load.
+- [x] Validate trace-loss behavior under controlled load.
 
 Keep the current Grafana dashboard scoped to validation and operations until
 milestones 1 through 3 are complete. Do not begin a Kubernetes operator or
@@ -226,6 +226,14 @@ The local implementation is `deploy/kind/lab.sh run`. A recorded pass on Linux
 is stored in
 [`docs/validation/2026-08-29-kind-kernel-7.1.8/`](docs/validation/2026-08-29-kind-kernel-7.1.8/report.md).
 This closes the single-host Kind integration gate, not the kernel matrix below.
+
+A disposable KVM regression on Fedora kernels 7.0.12 and 7.1.8, including
+systemd lifecycle checks, zero-loss normal capture, and deliberately induced
+trace overruns with degraded readiness, is stored in
+[`docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/`](docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/report.md).
+It proves the two-kernel and controlled-loss mechanics. The Ubuntu LTS profiles
+and their single-node k3s run remain release-qualification work, so the broader
+multi-kernel matrix item above stays open.
 
 ### CI strategy
 

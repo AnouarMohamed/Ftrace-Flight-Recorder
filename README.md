@@ -159,6 +159,12 @@ The [local Kind lab](deploy/kind/README.md) builds the current image, captures
 real host-kernel scheduler events, and verifies Prometheus discovery, alert
 rules, and the provisioned Grafana dashboard.
 
+The [disposable VM harness](tests/vm/README.md) validates systemd lifecycle and
+controlled trace-loss behavior across installed kernels, with Ubuntu LTS and
+single-node k3s profiles for release qualification. The latest recorded
+two-kernel pass is in
+[`docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/`](docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/report.md).
+
 ## Development
 
 ~~~sh
