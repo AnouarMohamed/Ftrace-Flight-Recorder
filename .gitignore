@@ -3,3 +3,4 @@ src/*.o
 *.o
 *.tar.xz
 .build/
+.vm-lab/

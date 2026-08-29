@@ -1,0 +1,21 @@
+fullnameOverride: fdr-vm
+
+image:
+  repository: fdr-vm
+  tag: dev
+  pullPolicy: Never
+
+config:
+  node.conf: null
+  k3s.conf: |
+    instance fdr-k3s 4m
+    enable sched/sched_wakeup
+    minfree 5
+    saveto /var/log/fdr/k3s.log 16m
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
