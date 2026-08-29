@@ -73,6 +73,25 @@ run_load()
 	done
 }
 
+run_syscall_load()
+{
+	duration=$1
+	workers=$2
+	end=$((SECONDS + duration))
+	pids=()
+	for _ in $(seq 1 "$workers"); do
+		(
+			while [ "$SECONDS" -lt "$end" ]; do
+				/bin/true
+			done
+		) &
+		pids+=("$!")
+	done
+	for pid in "${pids[@]}"; do
+		wait "$pid"
+	done
+}
+
 install -m 0755 "$repo_root/fdrd" /usr/sbin/fdrd
 install -m 0644 "$repo_root/fdr.service" /usr/lib/systemd/system/fdr.service
 mkdir -p /etc/fdr.d /var/log/fdr
@@ -159,6 +178,9 @@ done
 [ "$rotations_after" -gt "$rotations_before" ]
 curl --fail --silent http://127.0.0.1:9119/metrics >"$result_dir/systemd-metrics.txt"
 grep -q '^fdr_ready 1$' "$result_dir/systemd-metrics.txt"
+grep -q '^fdr_trace_overruns_total 0$' "$result_dir/systemd-metrics.txt"
+grep -q '^fdr_trace_dropped_events_total 0$' "$result_dir/systemd-metrics.txt"
+grep -q '^fdr_trace_commit_overruns_total 0$' "$result_dir/systemd-metrics.txt"
 stat -c '%F %a %s %n' /var/log/fdr/vm.log /var/log/fdr/vm.log.1 \
     >"$result_dir/captures.txt"
 for capture in /var/log/fdr/vm.log /var/log/fdr/vm.log.1; do
@@ -179,13 +201,14 @@ cat >/etc/systemd/system/fdr.service.d/benchmark.conf <<'EOF'
 [Service]
 CPUQuota=1%
 EOF
-install_config 64k 256m sched/sched_switch sched/sched_wakeup
+install_config 64k 256m sched/sched_switch sched/sched_wakeup \
+    raw_syscalls/sys_enter raw_syscalls/sys_exit
 rm -f /var/log/fdr/vm.log /var/log/fdr/vm.log.1
 systemctl daemon-reload
 systemctl start fdr
 wait_ready
 loss_start=$(date +%s)
-run_load 35 12 &
+run_syscall_load 35 12 &
 load_pid=$!
 degraded_after=0
 while kill -0 "$load_pid" 2>/dev/null; do

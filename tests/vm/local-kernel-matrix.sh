@@ -34,7 +34,8 @@ prepare_root()
 	fi
 	# OCI layers can intentionally contain non-searchable data directories.
 	# mke2fs must traverse the full staging tree while populating the image.
-	find "$root_tree" -type d -exec chmod u+rwx {} +
+	chmod u+rwx "$root_tree" "$root_tree"/*
+	chmod -R u+X "$root_tree"
 	mkdir -p "$root_tree/usr/lib/modules" "$root_tree/usr/local/sbin" \
 	    "$root_tree/etc/systemd/system"
 	for kernel in ${kernels[*]}; do
@@ -52,6 +53,7 @@ prepare_root()
 #!/usr/bin/env bash
 set -Eeuo pipefail
 modprobe 9pnet_virtio
+modprobe 9p
 mkdir -p /mnt/host
 mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600 \
     hostshare /mnt/host
@@ -68,15 +70,24 @@ EOF
 Description=FDR local-kernel VM validation
 After=basic.target
 Requires=basic.target
+SuccessAction=poweroff-force
+FailureAction=poweroff-force
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/fdr-local-boot
 StandardOutput=journal+console
 StandardError=journal+console
-SuccessAction=poweroff-force
-FailureAction=poweroff-force
 EOF
+	cat >"$root_tree/etc/systemd/system/fdr-local-validation.target" <<'EOF'
+[Unit]
+Description=FDR local-kernel VM validation target
+Requires=fdr-local-validation.service
+After=fdr-local-validation.service
+AllowIsolate=yes
+EOF
+	ln -sfn fdr-local-validation.target \
+	    "$root_tree/etc/systemd/system/default.target"
 	rm -f "$root_image"
 	mke2fs -q -t ext4 -d "$root_tree" "$root_image" 4G
 }
@@ -96,7 +107,7 @@ run_kernel()
 	    -name "fdr-$profile" -machine q35,accel=kvm -cpu host -smp 4 -m 4096 \
 	    -display none -monitor none -no-reboot -serial "file:$console" \
 	    -kernel "/boot/vmlinuz-$kernel" \
-	    -append "root=/dev/vda rw console=ttyS0 selinux=0 systemd.unit=fdr-local-validation.service fdr.result=.vm-lab/runs/$run_id/$profile" \
+	    -append "root=/dev/vda rw console=ttyS0 selinux=0 fdr.result=.vm-lab/runs/$run_id/$profile" \
 	    -drive "file=$overlay,if=virtio,format=qcow2" \
 	    -virtfs "local,path=$repo_root,mount_tag=hostshare,security_model=none" \
 	    -net none
