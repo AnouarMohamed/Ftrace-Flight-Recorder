@@ -70,6 +70,10 @@ Implementation status in the current development tree:
 - [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
       readiness reflect observed loss.
 - [x] Validate trace-loss behavior under controlled load.
+- [x] Add the deterministic collector benchmark and land the first compatible
+      text hot-path optimization with exact-output evidence.
+- [ ] Complete the real-kernel performance matrix, rotation decoupling, and
+      high-core topology work before changing production sizing guidance.
 
 Keep the current Grafana dashboard scoped to validation and operations until
 milestones 1 through 3 are complete. Do not begin a Kubernetes operator or

@@ -18,6 +18,7 @@ shortest path to a working capture.
 | Test real kernels in disposable VMs | [VM validation](../tests/vm/README.md) |
 | Review what has been proven | [Validation evidence](validation/README.md) |
 | Review the performance work and compatibility gates | [Performance optimization plan](performance-optimization-plan.md) |
+| Review the first collector before/after result | [Text collector benchmark](benchmarks/2026-08-29-text-collector.md) |
 | Review changes since the last release | [Changelog](../CHANGELOG.md) |
 | Understand planned work and limits | [Roadmap](../ROADMAP.md) |
 

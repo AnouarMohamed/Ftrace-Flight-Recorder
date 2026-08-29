@@ -25,6 +25,10 @@ All notable changes to this project are documented here. The format follows
   7.0.12/7.1.8 respectively.
 - Add comprehensive getting-started, configuration, operations,
   troubleshooting, incident-evidence, and validation documentation.
+- Add a deterministic collector benchmark that verifies byte-for-byte output,
+  exact byte metrics, and zero unaccounted drops across timed runs.
+- Add a staged performance plan with explicit evidence-preservation gates and
+  reproducible qualification requirements.
 
 ### Changed
 
@@ -40,6 +44,11 @@ All notable changes to this project are documented here. The format follows
   hardening resources.
 - Replace the validation overview artwork with a minimal technical evidence
   summary focused on recorded results.
+- Reduce text-collector hot-path work with a 64 KiB minimum read allocation,
+  cached bounded-output size, and byte-budgeted free-space checks while keeping
+  the text format, append behavior, size limit, and drop accounting intact.
+- Parse per-CPU trace-loss statistics with bounded direct reads and checked
+  integer conversion instead of formatted stdio scanning.
 
 ### Documentation
 
@@ -57,6 +66,9 @@ All notable changes to this project are documented here. The format follows
   in disposable KVM guests on Linux 7.0.12 and 7.1.8.
 - Keep Ubuntu LTS and Noble k3s qualification visible as open release work
   rather than treating the local-kernel results as universal coverage.
+- Record a five-round 64 MiB collector microbenchmark with exact output: median
+  process CPU fell from 135.9 ms to 63.5 ms (53.3%) on the named Fedora test
+  host; real-kernel and storage qualification remain explicitly open.
 
 ## [1.4.0] - 2026-08-23
 
