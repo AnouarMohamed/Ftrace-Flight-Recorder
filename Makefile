@@ -27,13 +27,14 @@ OBJS         := $(SRCS:.c=.o)
 BUILD_DIR    := .build
 TEST_BINS    := $(BUILD_DIR)/test_config $(BUILD_DIR)/test_harvest \
                 $(BUILD_DIR)/test_trace
+BENCH_BINS   := $(BUILD_DIR)/benchmark_harvest
 SANITIZER_CC ?= clang
 
 RPMBUILD_DIR ?= $(HOME)/rpmbuild
 LATEST_VERS  ?= $(VERSION)
 TEST_CONFIG  ?= tests/fixtures
 
-.PHONY: all clean install uninstall check sanitize rpm srpm tarball
+.PHONY: all clean install uninstall check sanitize benchmark rpm srpm tarball
 
 all: fdrd
 
@@ -61,6 +62,12 @@ $(BUILD_DIR)/test_trace: tests/test_trace.c src/runtime.c src/util.c \
 	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -o $@ tests/test_trace.c \
 	    src/runtime.c src/util.c src/trace.c $(LDLIBS)
 
+$(BUILD_DIR)/benchmark_harvest: tests/benchmarks/benchmark_harvest.c \
+    src/runtime.c src/util.c src/harvest.c src/fdr.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -o $@ \
+	    tests/benchmarks/benchmark_harvest.c src/runtime.c src/util.c \
+	    src/harvest.c $(LDLIBS)
+
 check: fdrd $(TEST_BINS)
 	./fdrd -n -c $(TEST_CONFIG)
 	@if ./fdrd -n -c tests/invalid >/dev/null 2>&1; then \
@@ -70,6 +77,9 @@ check: fdrd $(TEST_BINS)
 	$(BUILD_DIR)/test_harvest
 	$(BUILD_DIR)/test_trace
 	tests/test_runtime.sh ./fdrd
+
+benchmark: $(BENCH_BINS)
+	tests/benchmarks/run-collector.sh $(BUILD_DIR)/benchmark_harvest
 
 sanitize: | $(BUILD_DIR)
 	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \
