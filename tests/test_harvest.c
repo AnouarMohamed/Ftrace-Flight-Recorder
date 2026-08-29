@@ -2,10 +2,12 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static void
@@ -16,6 +18,107 @@ write_trace(const char *path, const char *payload)
 	assert(fd >= 0);
 	assert(fdr_write_all(fd, payload, strlen(payload)) == 0);
 	assert(close(fd) == 0);
+}
+
+static void
+assert_file_content(const char *path, const char *expected)
+{
+	char buffer[128];
+	size_t expected_length = strlen(expected);
+	int fd = open(path, O_RDONLY | O_CLOEXEC);
+	ssize_t n;
+
+	assert(fd >= 0);
+	assert(expected_length < sizeof(buffer));
+	n = read(fd, buffer, sizeof(buffer));
+	assert(n == (ssize_t)expected_length);
+	assert(memcmp(buffer, expected, expected_length) == 0);
+	assert(read(fd, buffer, sizeof(buffer)) == 0);
+	assert(close(fd) == 0);
+}
+
+static void
+wait_for_file(const char *path)
+{
+	struct stat st;
+	unsigned int attempt;
+
+	for (attempt = 0; attempt < 200; attempt++) {
+		if (stat(path, &st) == 0)
+			return;
+		usleep(10000);
+	}
+	assert(!"timed out waiting for collector output");
+}
+
+static void
+wait_for_size(const char *path, off_t expected)
+{
+	struct stat st;
+	unsigned int attempt;
+
+	for (attempt = 0; attempt < 200; attempt++) {
+		if (stat(path, &st) == 0 && st.st_size == expected)
+			return;
+		usleep(10000);
+	}
+	assert(!"timed out waiting for collector bytes");
+}
+
+static void
+test_signal_reopen(void)
+{
+	char tempdir[] = "/tmp/fdr-harvest-reopen-XXXXXX";
+	char tracepipe[FDR_PATH_MAX];
+	char logfile[FDR_PATH_MAX];
+	char moved[FDR_PATH_MAX];
+	struct fdr_instance instance;
+	struct fdr_item item;
+	const char before[] = "before reopen\n";
+	const char after[] = "after reopen\n";
+	pid_t child;
+	int writer;
+	int status;
+
+	assert(mkdtemp(tempdir) != NULL);
+	assert(fdr_join_path(tracepipe, sizeof(tracepipe), tempdir,
+	    "trace_pipe") == 0);
+	assert(fdr_join_path(logfile, sizeof(logfile), tempdir, "output.log") == 0);
+	assert(fdr_join_path(moved, sizeof(moved), tempdir, "output.moved") == 0);
+	assert(mkfifo(tracepipe, 0600) == 0);
+
+	fdr_instance_init(&instance);
+	assert(fdr_copy_field(instance.iname, sizeof(instance.iname),
+	    "fdr-unit-reopen") == 0);
+	assert(fdr_copy_field(instance.dname, sizeof(instance.dname), tempdir) == 0);
+	instance.minfree = 0;
+	memset(&item, 0, sizeof(item));
+	item.type = FDR_ITEM_SAVETO;
+	assert(fdr_copy_field(item.target, sizeof(item.target), logfile) == 0);
+
+	child = fork();
+	assert(child >= 0);
+	if (child == 0)
+		_exit(fdr_harvest_run(&instance, &item) == 0 ? 0 : 1);
+	writer = open(tracepipe, O_WRONLY | O_CLOEXEC);
+	assert(writer >= 0);
+	assert(fdr_write_all(writer, before, strlen(before)) == 0);
+	wait_for_size(logfile, (off_t)strlen(before));
+	assert(rename(logfile, moved) == 0);
+	assert(kill(child, SIGUSR1) == 0);
+	wait_for_file(logfile);
+	assert(fdr_write_all(writer, after, strlen(after)) == 0);
+	wait_for_size(logfile, (off_t)strlen(after));
+	assert(close(writer) == 0);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	assert_file_content(moved, before);
+	assert_file_content(logfile, after);
+
+	assert(unlink(tracepipe) == 0);
+	assert(unlink(logfile) == 0);
+	assert(unlink(moved) == 0);
+	assert(rmdir(tempdir) == 0);
 }
 
 int
@@ -69,6 +172,7 @@ main(void)
 	assert(stat(backup, &st) == 0 &&
 	    st.st_size == (off_t)strlen(payload));
 	assert(fdr_metrics_load_u64(&fdr.metrics->rotations) == 1);
+	test_signal_reopen();
 	fdr_metrics_destroy();
 
 	assert(unlink(tracepipe) == 0);

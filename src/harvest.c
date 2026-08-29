@@ -243,7 +243,7 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 			if (newfd < 0)
 				break;
 			writefd = newfd;
-			fdr_log("info", "reopened %s after SIGHUP", item->target);
+			fdr_log("info", "reopened %s after reopen signal", item->target);
 		}
 
 		n = read(readfd, buffer, (size_t)blocksize);
