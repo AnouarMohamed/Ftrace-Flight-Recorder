@@ -27,37 +27,123 @@ fdr_add_saturating(uint64_t *total, uint64_t value)
 }
 
 static int
+fdr_trace_parse_counter(const char *line, size_t length, const char *label,
+    uint64_t *value)
+{
+	size_t label_length = strlen(label);
+	size_t cursor;
+	uint64_t parsed = 0;
+
+	if (length < label_length || memcmp(line, label, label_length) != 0)
+		return 0;
+	cursor = label_length;
+	while (cursor < length && (line[cursor] == ' ' || line[cursor] == '\t'))
+		cursor++;
+	if (cursor == length || !isdigit((unsigned char)line[cursor]))
+		return -1;
+	while (cursor < length && isdigit((unsigned char)line[cursor])) {
+		unsigned int digit = (unsigned int)(line[cursor] - '0');
+
+		if (parsed > (UINT64_MAX - digit) / 10)
+			return -1;
+		parsed = parsed * 10 + digit;
+		cursor++;
+	}
+	while (cursor < length && (line[cursor] == ' ' || line[cursor] == '\t' ||
+	    line[cursor] == '\r'))
+		cursor++;
+	if (cursor != length)
+		return -1;
+	*value = parsed;
+	return 1;
+}
+
+static void
+fdr_trace_parse_stats_line(const char *line, size_t length,
+    uint64_t *overruns, uint64_t *dropped, uint64_t *commit_overruns,
+    int *found_overruns, int *found_dropped, int *found_commit)
+{
+	int parsed;
+
+	parsed = fdr_trace_parse_counter(line, length, "overrun:", overruns);
+	if (parsed != 0) {
+		if (parsed > 0)
+			*found_overruns = 1;
+		return;
+	}
+	parsed = fdr_trace_parse_counter(line, length, "dropped events:", dropped);
+	if (parsed != 0) {
+		if (parsed > 0)
+			*found_dropped = 1;
+		return;
+	}
+	parsed = fdr_trace_parse_counter(line, length, "commit overrun:",
+	    commit_overruns);
+	if (parsed > 0)
+		*found_commit = 1;
+}
+
+static int
 fdr_trace_parse_stats(const char *path, uint64_t *overruns,
     uint64_t *dropped, uint64_t *commit_overruns)
 {
-	char line[256];
-	FILE *fp;
+	char buffer[4096];
+	size_t used = 0;
+	int discarding = 0;
+	int fd;
 	int found_overruns = 0;
 	int found_dropped = 0;
 	int found_commit = 0;
+	int rc = -1;
 
-	fp = fopen(path, "re");
-	if (fp == NULL)
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
 		return -1;
-	while (fgets(line, sizeof(line), fp) != NULL) {
-		uint64_t value;
+	for (;;) {
+		ssize_t n;
+		size_t start = 0;
 
-		if (sscanf(line, "overrun: %" SCNu64, &value) == 1) {
-			*overruns = value;
-			found_overruns = 1;
-		} else if (sscanf(line, "dropped events: %" SCNu64,
-		    &value) == 1) {
-			*dropped = value;
-			found_dropped = 1;
-		} else if (sscanf(line, "commit overrun: %" SCNu64,
-		    &value) == 1) {
-			*commit_overruns = value;
-			found_commit = 1;
+		n = read(fd, buffer + used, sizeof(buffer) - used);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			goto out;
+		}
+		used += (size_t)n;
+		while (start < used) {
+			char *newline = memchr(buffer + start, '\n', used - start);
+
+			if (newline == NULL)
+				break;
+			if (!discarding)
+				fdr_trace_parse_stats_line(buffer + start,
+				    (size_t)(newline - (buffer + start)), overruns,
+				    dropped, commit_overruns, &found_overruns,
+				    &found_dropped, &found_commit);
+			discarding = 0;
+			start = (size_t)(newline - buffer) + 1;
+		}
+		if (start != 0) {
+			memmove(buffer, buffer + start, used - start);
+			used -= start;
+		}
+		if (n == 0) {
+			if (used != 0 && !discarding)
+				fdr_trace_parse_stats_line(buffer, used, overruns,
+				    dropped, commit_overruns, &found_overruns,
+				    &found_dropped, &found_commit);
+			break;
+		}
+		if (used == sizeof(buffer)) {
+			used = 0;
+			discarding = 1;
 		}
 	}
-	if (ferror(fp) || fclose(fp) != 0)
-		return -1;
-	return found_overruns && found_dropped && found_commit ? 0 : -1;
+	rc = found_overruns && found_dropped && found_commit ? 0 : -1;
+out:
+	if (close(fd) != 0)
+		rc = -1;
+	return rc;
 }
 
 static int
