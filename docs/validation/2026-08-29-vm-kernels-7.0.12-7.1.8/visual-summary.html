@@ -4,53 +4,58 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FDR VM validation summary</title>
 <style>
-  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  :root { color-scheme: light; font-family: Arial, Helvetica, system-ui, sans-serif; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; padding: 64px; color: #e8edf7;
-    background: radial-gradient(circle at 80% 0, #173a4b 0, transparent 34%), #09121c; }
-  main { max-width: 1240px; margin: auto; }
-  .eyebrow { color: #72e6bd; font: 700 14px/1.2 ui-monospace, monospace; letter-spacing: .14em; }
-  h1 { margin: 14px 0 12px; font-size: 46px; letter-spacing: -.035em; }
-  .lede { color: #aab8ca; font-size: 19px; margin-bottom: 38px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-  article { padding: 27px; border: 1px solid #274356; border-radius: 18px;
-    background: linear-gradient(145deg, rgba(25,47,63,.94), rgba(13,27,40,.94)); }
-  h2 { margin: 0; font-size: 22px; font-family: ui-monospace, monospace; }
-  .pass { float: right; padding: 5px 10px; color: #071b14; background: #72e6bd;
-    border-radius: 999px; font-size: 12px; font-weight: 800; }
-  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
-  .metric { padding: 15px; border-radius: 12px; background: #091925; }
-  .metric b { display: block; color: #f7fbff; font-size: 24px; }
-  .metric span { color: #91a5b9; font-size: 13px; }
-  .normal b { color: #72e6bd; } .loss b { color: #ffbd66; }
-  footer { display: flex; gap: 30px; margin-top: 24px; padding: 20px 2px;
-    color: #91a5b9; font-size: 14px; }
-  footer strong { color: #dce7f3; }
+  body { margin: 0; min-height: 100vh; padding: 72px; color: oklch(25% .008 245);
+    background: oklch(97.5% .006 80); }
+  main { max-width: 1180px; margin: 0 auto; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 48px;
+    align-items: end; padding-bottom: 24px; border-bottom: 2px solid oklch(25% .008 245); }
+  .eyebrow { margin-bottom: 8px; font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+  h1 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -.02em; }
+  .meta { text-align: right; color: oklch(48% .008 245); font-size: 13px; line-height: 1.7; }
+  .meta strong { color: oklch(25% .008 245); font-weight: 600; }
+  .summary { display: flex; justify-content: space-between; align-items: baseline;
+    padding: 28px 0 16px; }
+  .summary h2 { margin: 0; font-size: 15px; font-weight: 700; }
+  .summary p { margin: 0; font-size: 13px; color: oklch(48% .008 245); }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15px; }
+  th { padding: 12px 14px; border-top: 1px solid oklch(67% .008 245);
+    border-bottom: 1px solid oklch(25% .008 245); text-align: left;
+    color: oklch(48% .008 245); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  td { padding: 22px 14px; border-bottom: 1px solid oklch(72% .008 245); }
+  th:first-child, td:first-child { padding-left: 0; width: 28%; }
+  th:last-child, td:last-child { padding-right: 0; text-align: right; width: 10%; }
+  .kernel { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-weight: 600; font-variant-numeric: tabular-nums; }
+  .number { font-variant-numeric: tabular-nums; }
+  .result { font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+  footer { display: grid; grid-template-columns: repeat(5, max-content); gap: 34px;
+    margin-top: 44px; padding-top: 16px; border-top: 1px solid oklch(67% .008 245);
+    color: oklch(48% .008 245); font-size: 12px; }
+  footer strong { color: oklch(25% .008 245); font-weight: 600; }
 </style>
 <main>
-  <div class="eyebrow">FTRACE FLIGHT RECORDER · DISPOSABLE KVM EVIDENCE</div>
-  <h1>Two kernels. Real tracefs. Deliberate degradation.</h1>
-  <div class="lede">Systemd lifecycle and controlled trace-loss validation · 2026-08-29</div>
-  <section class="grid">
-    <article><span class="pass">PASS</span><h2>7.0.12-100.fc43</h2>
-      <div class="metrics">
-        <div class="metric normal"><b>0</b><span>normal overruns</span></div>
-        <div class="metric normal"><b>ready</b><span>normal readiness</span></div>
-        <div class="metric loss"><b>4,416,118</b><span>controlled overruns</span></div>
-        <div class="metric loss"><b>6 sec</b><span>until degraded</span></div>
-      </div>
-    </article>
-    <article><span class="pass">PASS</span><h2>7.1.8-100.fc43</h2>
-      <div class="metrics">
-        <div class="metric normal"><b>0</b><span>normal overruns</span></div>
-        <div class="metric normal"><b>ready</b><span>normal readiness</span></div>
-        <div class="metric loss"><b>4,491,208</b><span>controlled overruns</span></div>
-        <div class="metric loss"><b>7 sec</b><span>until degraded</span></div>
-      </div>
-    </article>
+  <header>
+    <div><div class="eyebrow">FTRACE FLIGHT RECORDER</div><h1>Disposable VM validation</h1></div>
+    <div class="meta">2026-08-29<br>source <strong>97f77d7</strong></div>
+  </header>
+  <section class="summary">
+    <h2>Kernel matrix</h2>
+    <p>Normal capture, then controlled trace loss</p>
   </section>
+  <table aria-label="Kernel validation results">
+    <thead><tr><th>Kernel</th><th>Normal state</th><th>Normal overruns</th>
+      <th>Controlled overruns</th><th>Degraded after</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td class="kernel">7.0.12-100.fc43</td><td>Ready</td><td class="number">0</td>
+        <td class="number">4,416,118</td><td class="number">6 seconds</td><td class="result">PASS</td></tr>
+      <tr><td class="kernel">7.1.8-100.fc43</td><td>Ready</td><td class="number">0</td>
+        <td class="number">4,491,208</td><td class="number">7 seconds</td><td class="result">PASS</td></tr>
+    </tbody>
+  </table>
   <footer><span><strong>4 vCPU</strong> per guest</span><span><strong>cgroup v2</strong></span>
     <span><strong>systemd 252.39</strong></span><span><strong>ext4</strong></span>
-    <span>source <strong>97f77d7</strong></span></footer>
+    <span><strong>2 / 2 passed</strong></span></footer>
 </main>
 </html>
