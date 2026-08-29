@@ -7,19 +7,31 @@ Date: 2026-08-29
 
 - Phase 0 has a deterministic 64 MiB collector benchmark with byte-for-byte
   output and metric checks.
-- The first Phase 1 tranche caches bounded-output size, uses a conservative
-  64 KiB minimum read allocation, schedules storage checks by captured bytes,
-  and replaces formatted per-CPU loss parsing with bounded direct reads.
-- The initial microbenchmark measured 53.3% lower median process CPU with
-  exact output. See the [raw before/after report](benchmarks/2026-08-29-text-collector.md).
+- The first Phase 1 tranche caches bounded-output size, schedules storage
+  checks by captured bytes, and replaces formatted per-CPU loss parsing with
+  bounded direct reads.
+- A regular-file microbenchmark measured 53.3% lower median process CPU with
+  exact output, but it does not exercise the kernel text formatter and is not
+  accepted as a real FDR performance result. See the corrected
+  [microbenchmark report](benchmarks/2026-08-29-text-collector.md).
+- The unqualified 64 KiB minimum read allocation has been withdrawn. A
+  15-run real-tracefs comparison selected 8 KiB: normalized collector CPU was
+  14.9% below the pre-optimization baseline, while 64 KiB improved only
+  another 0.5%, within run variation. All candidates recorded zero loss. See
+  the [real-tracefs report](benchmarks/2026-08-30-real-tracefs-text.md).
 - A synthetic 256-CPU benchmark measured 32.9% lower median process CPU in the
   loss sampler, from 4.78 ms to 3.20 ms per complete topology sample. See the
   [loss-sampling report](benchmarks/2026-08-30-loss-sampling.md).
 - Metric batching is intentionally not enabled yet: shared counters remain
   current after every completed write until a bounded-time publication design
   is proven not to leave low-rate captures stale.
-- Rotation decoupling, cached CPU topology, real-kernel qualification, raw
-  capture, and snapshot mode remain open phases below.
+- An additive per-CPU probe captured both CPU-local text and raw pages on all
+  four guest CPUs with zero kernel loss. The raw `splice()` path used 0.09 CPU
+  seconds versus 1.65 for per-CPU text in focused runs, but it is not eligible
+  for production until it emits and decodes a standard interoperable archive.
+  See the [backend probe report](benchmarks/2026-08-30-per-cpu-backend.md).
+- Rotation decoupling, cached CPU topology, broader kernel/workload
+  qualification, raw capture, and snapshot mode remain open phases below.
 
 ## Objective
 
@@ -67,6 +79,13 @@ collector:
 - free-space checks are scheduled by read count rather than time and bytes;
 - loss sampling rediscovers and reparses every CPU stats path every five
   seconds.
+
+The dominant high-rate cost is expected to be inside the kernel reader, not
+these userspace operations. The global text reader selects events across CPU
+buffers and formats each binary record before returning from `read()`. Upstream
+currently formats through a trace-sequence buffer of roughly 8 KiB, so larger
+userspace allocations must not be assumed to produce equally large reads.
+Measure user and system CPU separately before assigning cost.
 
 The benchmark phase must separate kernel tracepoint overhead, text formatting,
 collector overhead, and destination-storage overhead before attributing gains.
@@ -139,10 +158,13 @@ signal after external rotation.
 ### 2. Benchmark larger reads
 
 Do not equate filesystem `st_blksize` with the ideal trace-pipe read size.
-Benchmark 4, 16, 64, and 256 KiB allocations. Keep partial reads correct and
-keep signal interruption responsive. Select a conservative compiled default
-only after real-kernel results; add an explicit advanced override only if
-different server classes require it.
+Benchmark 4, 8, 16, and 64 KiB allocations. Keep partial reads correct and
+keep signal interruption responsive. The Linux 7.1.8 scheduler-event matrix
+selected an 8 KiB compiled default: it reduced normalized read calls by 11.7%
+and normalized collector CPU by 5.6% relative to the current 4 KiB candidate,
+while 16 and 64 KiB had no material advantage. Broader workloads and kernels
+remain qualification work; add an advanced override only if that evidence
+shows different server classes require it.
 
 ### 3. Batch shared metrics
 
@@ -202,6 +224,10 @@ Document how per-CPU buffers scale and consider an optional total-memory sizing
 directive. Keep explicit per-CPU sizing fully supported.
 
 ## Phase 4: optional raw zero-copy backend
+
+Status: capability and extraction prototype passed on Linux 7.1.8; standard
+archive creation, decoding equivalence, fallback integration, and broader
+qualification remain open.
 
 Linux exposes `per_cpu/cpuN/trace_pipe_raw` for binary ring-buffer extraction
 and documents `splice()` as the fast transfer path. Prototype this as an

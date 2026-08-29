@@ -174,7 +174,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(increase(fdr_write_errors_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) + increase(fdr_probe_failures_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]))",
+          "expr": "sum(increase(fdr_write_errors_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) + increase(fdr_probe_failures_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) + increase(fdr_rotation_failures_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]))",
           "legendFormat": "Failures",
           "range": true,
           "refId": "A"
@@ -363,7 +363,8 @@
       },
       "targets": [
         {"editorMode": "code", "expr": "sum(fdr_rotations_total{namespace=~\"$namespace\",pod=~\"$pod\"})", "legendFormat": "Rotations", "range": true, "refId": "A"},
-        {"editorMode": "code", "expr": "sum(fdr_reloads_total{namespace=~\"$namespace\",pod=~\"$pod\"})", "legendFormat": "Reloads", "range": true, "refId": "B"}
+        {"editorMode": "code", "expr": "sum(fdr_reloads_total{namespace=~\"$namespace\",pod=~\"$pod\"})", "legendFormat": "Reloads", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "sum(fdr_rotation_failures_total{namespace=~\"$namespace\",pod=~\"$pod\"})", "legendFormat": "Rotation failures", "range": true, "refId": "C"}
       ],
       "title": "Capture lifecycle",
       "type": "timeseries"

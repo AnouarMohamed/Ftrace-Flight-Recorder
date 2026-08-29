@@ -18,7 +18,9 @@ shortest path to a working capture.
 | Test real kernels in disposable VMs | [VM validation](../tests/vm/README.md) |
 | Review what has been proven | [Validation evidence](validation/README.md) |
 | Review the performance work and compatibility gates | [Performance optimization plan](performance-optimization-plan.md) |
-| Review the first collector before/after result | [Text collector benchmark](benchmarks/2026-08-29-text-collector.md) |
+| Review the userspace copy-loop evidence | [Collector-copy microbenchmark](benchmarks/2026-08-29-text-collector.md) |
+| Review the real tracefs text-reader results | [Real-tracefs collector profile](benchmarks/2026-08-30-real-tracefs-text.md) |
+| Review the experimental per-CPU/raw result | [Per-CPU backend probe](benchmarks/2026-08-30-per-cpu-backend.md) |
 | Review high-core integrity-sampling results | [Trace-loss sampling benchmark](benchmarks/2026-08-30-loss-sampling.md) |
 | Review changes since the last release | [Changelog](../CHANGELOG.md) |
 | Understand planned work and limits | [Roadmap](../ROADMAP.md) |
@@ -45,13 +47,15 @@ global tracing state.
 
 FDR's parent process starts one worker per configuration file. If that file has
 a `saveto` directive, the worker remains alive as a collector and continuously
-copies `trace_pipe` into the configured file.
+copies `trace_pipe` into the configured file. The compatible collector uses an
+8 KiB minimum read, selected by real tracefs profiling rather than a regular
+file copy test.
 
 ### readiness
 
 The evidence-integrity state. A live FDR process may be unready because a probe
-failed, a collector failed, a file write failed, or the kernel reported trace
-loss. Always inspect readiness as well as liveness.
+failed, a collector failed, storage discarded output, a file write failed, or
+the kernel reported trace loss. Always inspect readiness as well as liveness.
 
 ### trace overrun
 

@@ -155,7 +155,12 @@ limit:
 2. Otherwise FDR renames the current file to `<path>.1` and opens a new file.
 
 The fallback retains one previous generation. A failed rotation drops the
-current trace block, records it in `fdr_bytes_dropped_total`, and continues.
+current trace block, increments `fdr_bytes_dropped_total` and
+`fdr_rotation_failures_total`, and makes readiness false. Further blocks are
+accounted as dropped, but FDR paces expensive rotation retries to once per
+second. If the underlying permission or storage problem recovers, a later retry
+rotates successfully and collection resumes; readiness remains latched false
+because evidence was already lost.
 
 ### Setup-only instances
 

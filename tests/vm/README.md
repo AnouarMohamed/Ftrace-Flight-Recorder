@@ -17,6 +17,35 @@ normal capture with zero loss, and a controlled overload that must produce a
 kernel overrun and degraded readiness. Kernel arguments select individual
 installed versions when needed.
 
+## Local performance qualification
+
+Run the complete global-text read-size matrix on the current installed kernel:
+
+```sh
+tests/vm/local-performance.sh
+```
+
+The harness compares the pre-optimization baseline with 4, 8, 16, and 64 KiB
+read allocations for three rotated rounds. It records worker user/system CPU,
+process I/O, peak memory, output bytes, and every integrity counter. It builds
+inside a pinned Debian 12 container so the binaries are compatible with the
+guest rootfs.
+
+Run only the additive per-CPU capability probe while developing:
+
+```sh
+FDR_PERF_MODE=backend tests/vm/local-performance.sh
+```
+
+This checks CPU-local text readers and raw `splice()` extraction without
+changing production FDR. The raw output is a prototype bundle, not a qualified
+`trace.dat`; see the committed [backend report](../../docs/benchmarks/2026-08-30-per-cpu-backend.md).
+
+Both modes require the installed kernel image and matching modules, Docker,
+QEMU, `mke2fs`, and writable `/dev/kvm`. Results are written under
+`.vm-lab/runs/`. A successful run deletes its copy-on-write overlay; a failed
+run retains the overlay and line-numbered guest log for diagnosis.
+
 For the release-qualification LTS and k3s matrix, each guest uses a
 copy-on-write disk backed by a checksum-verified official Ubuntu minimal cloud
 image.

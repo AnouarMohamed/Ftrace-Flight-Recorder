@@ -85,6 +85,7 @@ struct fdr_metrics {
 	uint64_t bytes_written;
 	uint64_t bytes_dropped;
 	uint64_t rotations;
+	uint64_t rotation_failures;
 	uint64_t probe_failures;
 	uint64_t write_errors;
 	uint64_t reloads;

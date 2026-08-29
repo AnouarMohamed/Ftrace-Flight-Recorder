@@ -1,4 +1,4 @@
-.TH FDRD 8 "23 August 2026" "fdr 1.4.0" "System Administration"
+.TH FDRD 8 "30 August 2026" "fdr 1.4.0" "System Administration"
 .SH NAME
 fdrd \- record configured Linux ftrace events
 .SH SYNOPSIS
@@ -90,15 +90,14 @@ suffix.
 Liveness of the parent event loop.
 .TP
 .B /readyz
-Readiness of configured probes, persistent collectors, and trace integrity.
-Storage-protection drops do not change readiness; monitor
-.B fdr_bytes_dropped_total
-separately.
+Readiness of configured probes, persistent collectors, storage, and trace
+integrity. Known storage drops, failed rotations, write failures, and trace
+loss make readiness false for the rest of the process lifetime.
 .TP
 .B /metrics
-Prometheus text metrics, including bytes written or dropped, rotations, probe
-and write failures, worker state, and cumulative tracefs overruns or dropped
-events. Newly observed trace loss makes readiness false.
+Prometheus text metrics, including bytes written or dropped, successful and
+failed rotations, probe and write failures, worker state, and cumulative
+tracefs overruns or dropped events.
 .SH SIGNALS
 .TP
 .B SIGHUP

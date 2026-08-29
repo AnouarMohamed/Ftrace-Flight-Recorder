@@ -29,6 +29,11 @@ TEST_BINS    := $(BUILD_DIR)/test_config $(BUILD_DIR)/test_harvest \
                 $(BUILD_DIR)/test_trace
 BENCH_BINS   := $(BUILD_DIR)/benchmark_harvest \
                 $(BUILD_DIR)/benchmark_loss
+TEXT_BUFFER_SIZES := 4096 8192 16384 65536
+TEXT_BUFFER_BINS := $(addprefix $(BUILD_DIR)/fdrd-buffer-,\
+                    $(TEXT_BUFFER_SIZES))
+PERF_BINS    := $(TEXT_BUFFER_BINS) $(BUILD_DIR)/sched_load \
+                $(BUILD_DIR)/per_cpu_capture
 SANITIZER_CC ?= clang
 
 RPMBUILD_DIR ?= $(HOME)/rpmbuild
@@ -36,7 +41,7 @@ LATEST_VERS  ?= $(VERSION)
 TEST_CONFIG  ?= tests/fixtures
 
 .PHONY: all clean install uninstall check sanitize benchmark benchmark-loss \
-        rpm srpm tarball
+        performance-binaries rpm srpm tarball
 
 all: fdrd
 
@@ -76,6 +81,16 @@ $(BUILD_DIR)/benchmark_loss: tests/benchmarks/benchmark_loss.c \
 	    tests/benchmarks/benchmark_loss.c src/runtime.c src/util.c \
 	    src/trace.c $(LDLIBS)
 
+$(BUILD_DIR)/fdrd-buffer-%: $(SRCS) src/fdr.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) -DFDR_HARVEST_BUFFER_MIN=$*U $(CSTD) $(CFLAGS) \
+	    $(WARNFLAGS) -o $@ $(SRCS) $(LDLIBS)
+
+$(BUILD_DIR)/sched_load: tests/benchmarks/sched_load.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -pthread -o $@ $<
+
+$(BUILD_DIR)/per_cpu_capture: tests/benchmarks/per_cpu_capture.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CSTD) $(CFLAGS) $(WARNFLAGS) -pthread -o $@ $<
+
 check: fdrd $(TEST_BINS)
 	./fdrd -n -c $(TEST_CONFIG)
 	@if ./fdrd -n -c tests/invalid >/dev/null 2>&1; then \
@@ -91,6 +106,8 @@ benchmark: $(BENCH_BINS)
 
 benchmark-loss: $(BUILD_DIR)/benchmark_loss
 	$(BUILD_DIR)/benchmark_loss
+
+performance-binaries: $(PERF_BINS)
 
 sanitize: | $(BUILD_DIR)
 	$(SANITIZER_CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic \

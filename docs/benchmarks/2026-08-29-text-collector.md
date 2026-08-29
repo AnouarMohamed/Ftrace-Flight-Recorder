@@ -1,14 +1,19 @@
-# Text collector benchmark: 2026-08-29
+# Userspace collector-copy microbenchmark: 2026-08-29
+
+Status: correctness and userspace-copy evidence only; not a real-ftrace
+performance result.
 
 ## Result
 
-The first compatible text-collector optimization cut median collector process
-CPU by 53.3% in the deterministic 64 MiB copy benchmark. Every run produced a
-byte-for-byte match and reported zero dropped bytes.
+The first compatible collector change cut median process CPU by 53.3% while
+copying a deterministic 64 MiB regular file. Every run produced a byte-for-byte
+match and reported zero dropped bytes.
 
-This is a focused microbenchmark, not a claim that a real ftrace workload will
-use 53.3% less total CPU. Kernel event generation, text formatting, storage,
-and workload impact require the disposable-VM matrix in the performance plan.
+The input named `trace_pipe` in this harness is a regular file. It does not
+execute the kernel's trace-ring traversal, cross-CPU merge, or text formatter.
+The 53.3% result therefore must not be quoted as an FDR or real-`trace_pipe`
+CPU improvement. Kernel event generation, text formatting, storage, and
+workload impact require the disposable-VM matrix in the performance plan.
 
 ## Compared revisions
 
@@ -81,15 +86,18 @@ input, invokes the real `fdr_harvest_run()` path, and then requires:
 | Wall time | 141.2 ms | 82.3 ms | 41.7% lower |
 | Throughput | 453.4 MiB/s | 777.3 MiB/s | 71.4% higher |
 
-The optimized worker allocates at most about 60 KiB more userspace read-buffer
-memory when the old path selected 4 KiB. It does not change the configured
-kernel trace-buffer allocation.
+This historical candidate allocated about 60 KiB more userspace read-buffer
+memory when the old path selected 4 KiB. Upstream's text reader currently
+formats through an internal buffer of roughly 8 KiB, so the regular-file gain
+does not justify a 64 KiB production allocation. The default is being retested
+with real tracefs before promotion.
 
-The gain comes from fewer read/write iterations and eliminating the bounded
-output's repeated file-size syscall. Output is still opened with `O_APPEND`;
+Within this regular-file harness, the gain comes from fewer read/write
+iterations and eliminating the bounded output's repeated file-size syscall.
+Those are valid userspace cleanups, but their contribution to a live text
+collector remains unmeasured. Output is still opened with `O_APPEND`;
 successful writes update the cached size, and reopen or rotation restats the
-active file. Free-space protection remains enabled and is checked on the first
-block and approximately every MiB of traffic.
+active file.
 
 ## Qualification still required
 

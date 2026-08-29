@@ -66,6 +66,19 @@ wait_for_size(const char *path, off_t expected)
 }
 
 static void
+wait_for_counter(const uint64_t *counter, uint64_t minimum)
+{
+	unsigned int attempt;
+
+	for (attempt = 0; attempt < 300; attempt++) {
+		if (fdr_metrics_load_u64(counter) >= minimum)
+			return;
+		usleep(10000);
+	}
+	assert(!"timed out waiting for collector metric");
+}
+
+static void
 test_signal_reopen(void)
 {
 	char tempdir[] = "/tmp/fdr-harvest-reopen-XXXXXX";
@@ -121,6 +134,90 @@ test_signal_reopen(void)
 	assert(rmdir(tempdir) == 0);
 }
 
+static void
+test_rotation_failure_recovery(void)
+{
+	char tempdir[] = "/tmp/fdr-harvest-rotation-XXXXXX";
+	char tracepipe[FDR_PATH_MAX];
+	char logfile[FDR_PATH_MAX];
+	char backup[FDR_PATH_MAX];
+	struct fdr_instance instance;
+	struct fdr_item item;
+	const char full[] = "generation-000\n";
+	const char dropped[] = "generation-001\n";
+	const char suppressed[] = "generation-002\n";
+	const char recovered[] = "generation-003\n";
+	uint64_t dropped_before;
+	uint64_t failures_before;
+	uint64_t rotations_before;
+	pid_t child;
+	int writer;
+	int status;
+
+	assert(strlen(full) == strlen(dropped));
+	assert(strlen(full) == strlen(recovered));
+	assert(mkdtemp(tempdir) != NULL);
+	assert(fdr_join_path(tracepipe, sizeof(tracepipe), tempdir,
+	    "trace_pipe") == 0);
+	assert(fdr_join_path(logfile, sizeof(logfile), tempdir, "output.log") == 0);
+	assert(snprintf(backup, sizeof(backup), "%s.1", logfile) <
+	    (int)sizeof(backup));
+	assert(mkfifo(tracepipe, 0600) == 0);
+	write_trace(logfile, full);
+
+	fdr_instance_init(&instance);
+	assert(fdr_copy_field(instance.iname, sizeof(instance.iname),
+	    "fdr-unit-rotation-recovery") == 0);
+	assert(fdr_copy_field(instance.dname, sizeof(instance.dname), tempdir) == 0);
+	instance.minfree = 0;
+	instance.maxsize = strlen(full);
+	memset(&item, 0, sizeof(item));
+	item.type = FDR_ITEM_SAVETO;
+	assert(fdr_copy_field(item.target, sizeof(item.target), logfile) == 0);
+
+	dropped_before = fdr_metrics_load_u64(&fdr.metrics->bytes_dropped);
+	failures_before = fdr_metrics_load_u64(&fdr.metrics->rotation_failures);
+	rotations_before = fdr_metrics_load_u64(&fdr.metrics->rotations);
+	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
+	assert(chmod(tempdir, 0500) == 0);
+	child = fork();
+	assert(child >= 0);
+	if (child == 0)
+		_exit(fdr_harvest_run(&instance, &item) == 0 ? 0 : 1);
+	writer = open(tracepipe, O_WRONLY | O_CLOEXEC);
+	assert(writer >= 0);
+	assert(fdr_write_all(writer, dropped, strlen(dropped)) == 0);
+	wait_for_counter(&fdr.metrics->rotation_failures, failures_before + 1);
+	wait_for_counter(&fdr.metrics->bytes_dropped,
+	    dropped_before + strlen(dropped));
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
+	assert(fdr_write_all(writer, suppressed, strlen(suppressed)) == 0);
+	wait_for_counter(&fdr.metrics->bytes_dropped,
+	    dropped_before + strlen(dropped) + strlen(suppressed));
+	assert(fdr_metrics_load_u64(&fdr.metrics->rotation_failures) ==
+	    failures_before + 1);
+
+	assert(chmod(tempdir, 0700) == 0);
+	usleep(1100000);
+	assert(fdr_write_all(writer, recovered, strlen(recovered)) == 0);
+	wait_for_counter(&fdr.metrics->rotations, rotations_before + 1);
+	wait_for_size(logfile, (off_t)strlen(recovered));
+	assert(close(writer) == 0);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	assert_file_content(backup, full);
+	assert_file_content(logfile, recovered);
+	assert(fdr_metrics_load_u64(&fdr.metrics->rotation_failures) ==
+	    failures_before + 1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->bytes_dropped) ==
+	    dropped_before + strlen(dropped) + strlen(suppressed));
+
+	assert(unlink(tracepipe) == 0);
+	assert(unlink(logfile) == 0);
+	assert(unlink(backup) == 0);
+	assert(rmdir(tempdir) == 0);
+}
+
 int
 main(void)
 {
@@ -155,6 +252,8 @@ main(void)
 	assert(stat(logfile, &st) == 0 && st.st_size == 0);
 	assert(fdr_metrics_load_u64(&fdr.metrics->bytes_dropped) ==
 	    strlen(payload));
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
+	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
 
 	write_trace(tracepipe, payload);
 	instance.minfree = 0; /* Direct test-only setting: disable the guard. */
@@ -173,6 +272,7 @@ main(void)
 	    st.st_size == (off_t)strlen(payload));
 	assert(fdr_metrics_load_u64(&fdr.metrics->rotations) == 1);
 	test_signal_reopen();
+	test_rotation_failure_recovery();
 	fdr_metrics_destroy();
 
 	assert(unlink(tracepipe) == 0);

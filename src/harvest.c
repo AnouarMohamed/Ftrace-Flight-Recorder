@@ -15,11 +15,15 @@
 #include <sys/statvfs.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
-#define FDR_HARVEST_BUFFER_MIN (64U * 1024U)
+#ifndef FDR_HARVEST_BUFFER_MIN
+#define FDR_HARVEST_BUFFER_MIN (8U * 1024U)
+#endif
 #define FDR_HARVEST_BUFFER_MAX (1024U * 1024U)
 #define FDR_SPACE_CHECK_BYTES (1024U * 1024U)
+#define FDR_ROTATION_RETRY_SECONDS 1
 
 static void
 fdr_sighup_worker(int signo)
@@ -161,11 +165,38 @@ fdr_space_available(int fd, int minfree)
 	return pctfree > (long double)minfree;
 }
 
+static int
+fdr_rotation_retry_ready(const struct timespec *retry_after)
+{
+	struct timespec now;
+
+	if (retry_after->tv_sec == 0 && retry_after->tv_nsec == 0)
+		return 1;
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+		return 1;
+	return now.tv_sec > retry_after->tv_sec ||
+	    (now.tv_sec == retry_after->tv_sec &&
+	    now.tv_nsec >= retry_after->tv_nsec);
+}
+
+static void
+fdr_schedule_rotation_retry(struct timespec *retry_after)
+{
+	if (clock_gettime(CLOCK_MONOTONIC, retry_after) != 0) {
+		retry_after->tv_sec = 0;
+		retry_after->tv_nsec = 0;
+		return;
+	}
+	retry_after->tv_sec += FDR_ROTATION_RETRY_SECONDS;
+}
+
 static void
 fdr_count_drop(size_t bytes)
 {
-	if (fdr.metrics != NULL)
+	if (fdr.metrics != NULL) {
 		fdr_metrics_add(&fdr.metrics->bytes_dropped, (uint64_t)bytes);
+		fdr_metrics_store_int(&fdr.metrics->healthy, 0);
+	}
 }
 
 int
@@ -180,8 +211,10 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 	uint64_t bytes_since_space_check = FDR_SPACE_CHECK_BYTES;
 	uint64_t current_size = 0;
 	int warned_space = 0;
+	int rotation_failed = 0;
 	struct stat st;
 	struct sigaction sa;
+	struct timespec rotation_retry_after = { 0, 0 };
 	int rc = -1;
 
 	if (fdr_join_path(tracepipe, sizeof(tracepipe), insp->dname,
@@ -285,9 +318,26 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 			if (current_size > insp->maxsize - (uint64_t)n) {
 				int newfd;
 
-				if (fdr_rotate_logs(insp, item->target) < 0) {
+				if (rotation_failed &&
+				    !fdr_rotation_retry_ready(&rotation_retry_after)) {
 					fdr_count_drop((size_t)n);
 					continue;
+				}
+				if (fdr_rotate_logs(insp, item->target) < 0) {
+					if (fdr.metrics != NULL)
+						fdr_metrics_add(
+						    &fdr.metrics->rotation_failures, 1);
+					fdr_schedule_rotation_retry(&rotation_retry_after);
+					rotation_failed = 1;
+					fdr_count_drop((size_t)n);
+					continue;
+				}
+				if (rotation_failed) {
+					fdr_log("info", "rotation recovered for instance %s",
+					    insp->iname);
+					rotation_failed = 0;
+					rotation_retry_after.tv_sec = 0;
+					rotation_retry_after.tv_nsec = 0;
 				}
 				newfd = fdr_reopen_log(writefd, item->target,
 				    &current_size);

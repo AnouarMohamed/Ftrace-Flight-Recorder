@@ -1,0 +1,3 @@
+mode	status	files	output_bytes	reported_bytes	operations	capture_errors	user_ticks	system_ticks	read_calls	write_calls	rchar	wchar	vmhwm_kb	trace_overruns	trace_dropped	commit_overruns
+text	PASS	4	66588697	66588697	8436	0	2	163	8786	8427	66553502	66553502	1556	0	0	0
+raw	PASS	4	24530944	24530944	504	0	0	9	0	0	0	0	1448	0	0	0

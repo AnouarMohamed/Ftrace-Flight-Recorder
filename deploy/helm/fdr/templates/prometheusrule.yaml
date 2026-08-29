@@ -20,7 +20,7 @@ spec:
             severity: warning
           annotations:
             summary: FDR reports degraded readiness
-            description: Check probe failures, trace loss, and collector state for this target.
+            description: Check probe failures, trace loss, storage drops, rotation failures, and collector state for this target.
         - alert: FDRWorkerMissing
           expr: fdr_workers_alive < fdr_instances
           for: 1m
@@ -48,8 +48,8 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: FDR dropped data to protect free disk space
-            description: The configured minfree threshold is active and the capture is incomplete.
+            summary: FDR dropped capture data
+            description: Free-space protection or rotation failure discarded bytes; the capture is incomplete.
         - alert: FDRProbeFailure
           expr: increase(fdr_probe_failures_total[5m]) > 0
           labels:

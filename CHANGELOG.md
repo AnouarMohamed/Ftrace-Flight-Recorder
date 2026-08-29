@@ -29,6 +29,8 @@ All notable changes to this project are documented here. The format follows
   exact byte metrics, and zero unaccounted drops across timed runs.
 - Add a staged performance plan with explicit evidence-preservation gates and
   reproducible qualification requirements.
+- Add a disposable per-CPU backend probe for CPU-local text reads and raw-page
+  `splice()` extraction without changing the production text backend.
 
 ### Changed
 
@@ -44,9 +46,11 @@ All notable changes to this project are documented here. The format follows
   hardening resources.
 - Replace the validation overview artwork with a minimal technical evidence
   summary focused on recorded results.
-- Reduce text-collector hot-path work with a 64 KiB minimum read allocation,
+- Reduce text-collector hot-path work with a real-tracefs-qualified 8 KiB read,
   cached bounded-output size, and byte-budgeted free-space checks while keeping
   the text format, append behavior, size limit, and drop accounting intact.
+- Pace failed rotation retries, expose a dedicated failure counter, degrade
+  readiness on every known storage drop, and resume capture after recovery.
 - Remove a redundant destination metadata lookup from fallback rotation.
 - Parse per-CPU trace-loss statistics with bounded direct reads and checked
   integer conversion instead of formatted stdio scanning.
@@ -67,12 +71,20 @@ All notable changes to this project are documented here. The format follows
   in disposable KVM guests on Linux 7.0.12 and 7.1.8.
 - Keep Ubuntu LTS and Noble k3s qualification visible as open release work
   rather than treating the local-kernel results as universal coverage.
-- Record a five-round 64 MiB collector microbenchmark with exact output: median
-  process CPU fell from 135.9 ms to 63.5 ms (53.3%) on the named Fedora test
-  host; real-kernel and storage qualification remain explicitly open.
+- Record a five-round 64 MiB regular-file collector-copy microbenchmark with
+  exact output, explicitly excluding it from real-ftrace performance claims.
 - Record a synthetic 256-CPU integrity-sampling benchmark: median process CPU
   fell from 4.78 ms to 3.20 ms (32.9%) per complete topology sample, with
   real-tracefs high-core qualification still open.
+- Record a 15-run Linux 7.1.8 real-tracefs scheduler workload comparison. The
+  selected 8 KiB text read used 14.9% less normalized collector CPU than the
+  pre-optimization baseline with zero kernel loss and zero recorder drops;
+  this remains below the plan's 25% promotion gate for a broad performance
+  claim.
+- Record a focused Linux 7.1.8 per-CPU backend probe: text and raw captured on
+  all four CPUs with zero trace loss. Raw collector CPU was 0.09 seconds versus
+  1.65 seconds for CPU-local text, but raw remains experimental because the
+  output is not yet a standard, decoder-qualified `trace.dat` archive.
 
 ## [1.4.0] - 2026-08-23
 

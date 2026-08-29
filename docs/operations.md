@@ -85,14 +85,14 @@ The listener supports `GET` and has no authentication or TLS.
 |---|---|---|
 | `/healthz` | `200 ok` | The parent event loop is alive |
 | `/readyz` | `200 ready` | Current recorder state has no known integrity failure |
-| `/readyz` | `503 not ready` | A probe, collector, write, or trace-loss failure was observed |
+| `/readyz` | `503 not ready` | A probe, collector, storage, write, or trace-loss failure was observed |
 | `/metrics` | `200` | Current Prometheus-format metrics |
 | Any other path | `404` | Unknown endpoint |
 
-Liveness is not evidence completeness. A healthy process can be unready, and
-a ready process can still have storage-protection drops because
-`fdr_bytes_dropped_total` does not by itself change readiness. Monitor all
-integrity signals.
+Liveness is not evidence completeness. A healthy process can be unready. Any
+known storage drop now latches readiness false because the persisted evidence
+is incomplete. Monitor all integrity signals; readiness cannot prove that an
+unobserved loss did not occur.
 
 ## Metric reference
 
@@ -104,6 +104,7 @@ counters are cumulative for the current parent-process lifetime.
 | `fdr_bytes_written_total` | Counter | Bytes successfully appended. Useful for volume, not proof of completeness. |
 | `fdr_bytes_dropped_total` | Counter | Bytes discarded by free-space protection or a failed rotation. Any increase means incomplete file evidence; investigate disk capacity and rotation. |
 | `fdr_rotations_total` | Counter | Successful bounded-file rotations. Confirm retention behaves as intended. |
+| `fdr_rotation_failures_total` | Counter | Rotation attempts that failed before a retry. An increase makes readiness false; inspect permissions, free space, and logrotate. |
 | `fdr_probe_failures_total` | Counter | Events, filters, or modules that could not be configured. An increase makes readiness false. |
 | `fdr_write_errors_total` | Counter | Capture write or collector errors. Preserve logs and storage state immediately. |
 | `fdr_reloads_total` | Counter | Accepted `SIGHUP` configuration reloads. This does not count rejected syntax. |
@@ -120,6 +121,7 @@ Useful Prometheus expressions:
 fdr_ready == 0
 fdr_workers_alive < fdr_instances
 increase(fdr_bytes_dropped_total[5m]) > 0
+increase(fdr_rotation_failures_total[5m]) > 0
 increase(fdr_write_errors_total[5m]) > 0
 increase(fdr_probe_failures_total[5m]) > 0
 increase(fdr_trace_overruns_total[5m])
@@ -138,7 +140,7 @@ guide](../deploy/helm/fdr/README.md#prometheus-alerts-grafana-and-network-policy
 | Healthy and ready, counters stable | No known current failure | Continue monitoring; this is not a guarantee against unobserved loss |
 | Healthy but unready | Parent lives, but evidence is known to be degraded | Preserve evidence and metrics, then diagnose the changing counter or logs |
 | Unhealthy or process absent | Recorder is not being supervised successfully | Inspect the service manager, exit status, and previous logs |
-| Ready with storage drops increasing | Free-space protection is discarding output | Treat capture as incomplete even though readiness remains `1` |
+| Unready with storage drops increasing | Free-space protection or rotation is discarding output | Treat the capture as incomplete and repair storage before reloading |
 
 Readiness is intentionally sticky after a detected failure. A successful reload
 or restart creates a fresh health state, but it cannot repair the already

@@ -151,6 +151,9 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_rotations_total Log rotations performed\n"
 		    "# TYPE fdr_rotations_total counter\n"
 		    "fdr_rotations_total %" PRIu64 "\n"
+		    "# HELP fdr_rotation_failures_total Failed log rotation attempts\n"
+		    "# TYPE fdr_rotation_failures_total counter\n"
+		    "fdr_rotation_failures_total %" PRIu64 "\n"
 		    "# HELP fdr_probe_failures_total Probe configuration failures\n"
 		    "# TYPE fdr_probe_failures_total counter\n"
 		    "fdr_probe_failures_total %" PRIu64 "\n"
@@ -175,12 +178,13 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_workers_alive Running worker processes\n"
 		    "# TYPE fdr_workers_alive gauge\n"
 		    "fdr_workers_alive %d\n"
-		    "# HELP fdr_ready 1 when all configured probes are healthy\n"
+		    "# HELP fdr_ready 1 when known evidence integrity is intact\n"
 		    "# TYPE fdr_ready gauge\n"
 		    "fdr_ready %d\n",
 		    m ? fdr_metrics_load_u64(&m->bytes_written) : 0,
 		    m ? fdr_metrics_load_u64(&m->bytes_dropped) : 0,
 		    m ? fdr_metrics_load_u64(&m->rotations) : 0,
+		    m ? fdr_metrics_load_u64(&m->rotation_failures) : 0,
 		    m ? fdr_metrics_load_u64(&m->probe_failures) : 0,
 		    m ? fdr_metrics_load_u64(&m->write_errors) : 0,
 		    m ? fdr_metrics_load_u64(&m->reloads) : 0,
