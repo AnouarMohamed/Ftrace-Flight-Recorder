@@ -12,6 +12,9 @@ Date: 2026-08-29
   and replaces formatted per-CPU loss parsing with bounded direct reads.
 - The initial microbenchmark measured 53.3% lower median process CPU with
   exact output. See the [raw before/after report](benchmarks/2026-08-29-text-collector.md).
+- A synthetic 256-CPU benchmark measured 32.9% lower median process CPU in the
+  loss sampler, from 4.78 ms to 3.20 ms per complete topology sample. See the
+  [loss-sampling report](benchmarks/2026-08-30-loss-sampling.md).
 - Metric batching is intentionally not enabled yet: shared counters remain
   current after every completed write until a bounded-time publication design
   is proven not to leave low-rate captures stale.

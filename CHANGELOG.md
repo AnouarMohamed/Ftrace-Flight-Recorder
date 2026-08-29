@@ -70,6 +70,9 @@ All notable changes to this project are documented here. The format follows
 - Record a five-round 64 MiB collector microbenchmark with exact output: median
   process CPU fell from 135.9 ms to 63.5 ms (53.3%) on the named Fedora test
   host; real-kernel and storage qualification remain explicitly open.
+- Record a synthetic 256-CPU integrity-sampling benchmark: median process CPU
+  fell from 4.78 ms to 3.20 ms (32.9%) per complete topology sample, with
+  real-tracefs high-core qualification still open.
 
 ## [1.4.0] - 2026-08-23
 
