@@ -22,6 +22,7 @@ VM before making kernel-compatibility or performance claims.
 |---|---|---|---|
 | 2026-08-29 | Kind, Linux 7.1.8 | Base `9eecc9f` plus the report's smoke-workflow changes | [Full lifecycle report](2026-08-29-kind-kernel-7.1.8/report.md): real scheduler capture, Prometheus target, healthy/degraded Grafana states, configuration rollout, collector restart, rotation, and cleanup passed |
 | 2026-08-29 | Disposable KVM, Linux 7.0.12 and 7.1.8 | `97f77d7` | [Matrix report](2026-08-29-vm-kernels-7.0.12-7.1.8/matrix-report.md): systemd lifecycle, zero-loss normal load, and controlled trace-loss degradation passed on both kernels |
+| 2026-08-29 | Live Kind observation, Linux 7.1.8 | `ec40e3e` | [Focused evidence](2026-08-29-live-kind-kernel-7.1.8/report.md): 15-minute Grafana integrity view, Prometheus target health, active collection, and zero reported loss |
 
 The reports include environment details, metrics, logs, capture samples, and
 small screenshots or summaries where they improve reviewability. Large raw

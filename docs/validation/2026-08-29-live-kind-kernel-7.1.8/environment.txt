@@ -1,0 +1,13 @@
+observed_at=2026-08-29T21:09:42Z
+source_commit=ec40e3e0f5fdfa44ca8e87c3b66bc9e980286bca
+host_kernel=7.1.8-100.fc43.x86_64
+kind=0.31.0
+kubectl_client=v1.36.2
+kubernetes_server=v1.35.0
+fdr_image=fdr-lab:dev
+fdr_pod=fdr-lab-qcp7t
+grafana=11.5.2
+prometheus=3.5.0
+prometheus_operator=0.93.1
+grafana_screenshot_sha256=73911807f15aec71c94f8ae6b401328d726921e52131c594541cc70a67b3992a
+prometheus_screenshot_sha256=c92304e88440459b6811f2db779c16e90bb919b43c66355b69015e6ab8218430

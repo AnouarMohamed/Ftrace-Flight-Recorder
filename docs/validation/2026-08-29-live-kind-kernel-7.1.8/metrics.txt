@@ -1,0 +1,13 @@
+observed_at 2026-08-29T21:09:42Z
+fdr_bytes_written_total 2532343039
+fdr_bytes_dropped_total 0
+fdr_rotations_total 150
+fdr_probe_failures_total 0
+fdr_write_errors_total 0
+fdr_reloads_total 0
+fdr_trace_overruns_total 0
+fdr_trace_dropped_events_total 0
+fdr_trace_commit_overruns_total 0
+fdr_instances 1
+fdr_workers_alive 1
+fdr_ready 1
