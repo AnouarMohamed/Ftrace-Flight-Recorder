@@ -17,6 +17,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define FDR_HARVEST_BUFFER_MIN (64U * 1024U)
+#define FDR_HARVEST_BUFFER_MAX (1024U * 1024U)
+#define FDR_SPACE_CHECK_BYTES (1024U * 1024U)
+
 static void
 fdr_sighup_worker(int signo)
 {
@@ -25,7 +29,7 @@ fdr_sighup_worker(int signo)
 }
 
 static int
-fdr_open_log(const char *path)
+fdr_open_log(const char *path, uint64_t *sizep)
 {
 	int flags = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
 	int fd;
@@ -39,12 +43,14 @@ fdr_open_log(const char *path)
 		fdr_warn("cannot open log %s: %s", path, strerror(errno));
 		return -1;
 	}
-	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) {
 		fdr_warn("log target %s is not a regular file", path);
 		close(fd);
 		errno = EINVAL;
 		return -1;
 	}
+	if (sizep != NULL)
+		*sizep = (uint64_t)st.st_size;
 	return fd;
 }
 
@@ -133,9 +139,9 @@ rotated:
 }
 
 static int
-fdr_reopen_log(int oldfd, const char *path)
+fdr_reopen_log(int oldfd, const char *path, uint64_t *sizep)
 {
-	int newfd = fdr_open_log(path);
+	int newfd = fdr_open_log(path, sizep);
 
 	if (newfd < 0)
 		return -1;
@@ -177,7 +183,8 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 	int writefd = -1;
 	int blocksize;
 	int space_ok = 1;
-	unsigned int space_checks = 0;
+	uint64_t bytes_since_space_check = FDR_SPACE_CHECK_BYTES;
+	uint64_t current_size = 0;
 	int warned_space = 0;
 	struct stat st;
 	struct sigaction sa;
@@ -208,16 +215,17 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 		fdr_warn("cannot stat %s: %s", tracepipe, strerror(errno));
 		goto out;
 	}
-	if (st.st_blksize > 0 && st.st_blksize <= 1024 * 1024)
+	if (st.st_blksize >= (long)FDR_HARVEST_BUFFER_MIN &&
+	    st.st_blksize <= (long)FDR_HARVEST_BUFFER_MAX)
 		blocksize = (int)st.st_blksize;
 	else
-		blocksize = 4096;
+		blocksize = (int)FDR_HARVEST_BUFFER_MIN;
 	buffer = malloc((size_t)blocksize);
 	if (buffer == NULL) {
 		fdr_warn("cannot allocate trace buffer");
 		goto out;
 	}
-	writefd = fdr_open_log(item->target);
+	writefd = fdr_open_log(item->target, &current_size);
 	if (writefd < 0) {
 		free(buffer);
 		goto out;
@@ -231,7 +239,7 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 			int newfd;
 
 			fdr.got_sighup = 0;
-			newfd = fdr_reopen_log(writefd, item->target);
+			newfd = fdr_reopen_log(writefd, item->target, &current_size);
 			if (newfd < 0)
 				break;
 			writefd = newfd;
@@ -250,7 +258,7 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 			break;
 		}
 
-		if ((space_checks++ & 0xffU) == 0) {
+		if (bytes_since_space_check >= FDR_SPACE_CHECK_BYTES) {
 			space_ok = fdr_space_available(writefd, insp->minfree);
 			if (space_ok < 0)
 				break;
@@ -262,21 +270,18 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 				fdr_log("info", "free space recovered for %s", item->target);
 				warned_space = 0;
 			}
+			bytes_since_space_check = 0;
 		}
+		if (UINT64_MAX - bytes_since_space_check < (uint64_t)n)
+			bytes_since_space_check = UINT64_MAX;
+		else
+			bytes_since_space_check += (uint64_t)n;
 		if (!space_ok) {
 			fdr_count_drop((size_t)n);
 			continue;
 		}
 
 		if (insp->maxsize != UINT64_MAX) {
-			uint64_t current_size;
-
-			if (fstat(writefd, &st) != 0 || st.st_size < 0) {
-				fdr_warn("cannot stat %s: %s", item->target,
-				    strerror(errno));
-				break;
-			}
-			current_size = (uint64_t)st.st_size;
 			if ((uint64_t)n > insp->maxsize) {
 				fdr_warn("trace block exceeds maximum size for %s; dropping",
 				    item->target);
@@ -290,7 +295,8 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 					fdr_count_drop((size_t)n);
 					continue;
 				}
-				newfd = fdr_reopen_log(writefd, item->target);
+				newfd = fdr_reopen_log(writefd, item->target,
+				    &current_size);
 				if (newfd < 0)
 					break;
 				writefd = newfd;
@@ -306,6 +312,8 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 		}
 		if (fdr.metrics != NULL)
 			fdr_metrics_add(&fdr.metrics->bytes_written, (uint64_t)n);
+		if (insp->maxsize != UINT64_MAX)
+			current_size += (uint64_t)n;
 	}
 
 	if (rc != 0 && fdr.metrics != NULL)
