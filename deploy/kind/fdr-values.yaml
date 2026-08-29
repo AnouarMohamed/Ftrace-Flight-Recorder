@@ -6,12 +6,15 @@ image:
   pullPolicy: Never
 
 config:
+  # Remove the chart's example instance; the lab owns one focused recorder.
+  node.conf: null
   lab.conf: |
-    instance fdr-lab 1m
-    enable sched/sched_switch
+    instance fdr-lab 4m
     enable sched/sched_wakeup
     minfree 5
-    saveto /var/log/fdr/lab.log 32m
+    # Keep the lab threshold deliberately small so the smoke workflow can
+    # exercise fallback rotation without generating a high-volume workload.
+    saveto /var/log/fdr/lab.log 16m
 
 monitoring:
   podMonitor:

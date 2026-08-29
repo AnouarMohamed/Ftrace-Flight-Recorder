@@ -1,0 +1,8 @@
+2026-08-29T14:16:25Z [info] loaded instance fdr-lab from /etc/fdr.d/lab.conf
+2026-08-29T14:16:25Z [info] started worker 14 for instance fdr-lab
+2026-08-29T14:16:25Z [info] HTTP endpoints listening on 0.0.0.0:9119 (/healthz /readyz /metrics)
+2026-08-29T14:16:25Z [info] created trace instance fdr-lab
+2026-08-29T14:16:25Z [info] set instance fdr-lab buffer to 4096 KiB per CPU
+2026-08-29T14:16:25Z [info] saving instance fdr-lab to /var/log/fdr/lab.log
+2026-08-29T14:16:29Z [error] worker 14 for fdr-lab terminated unexpectedly
+2026-08-29T14:16:29Z [error] fdrd stopped with status 1

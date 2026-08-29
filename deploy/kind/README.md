@@ -27,6 +27,8 @@ and will not delete a same-named pre-existing cluster without the separate
 
 - Kind: use the locally installed version; validated with 0.31.0
 - kube-prometheus-stack Helm chart: 88.5.4
+- Grafana: 11.5.2
+- Prometheus: 3.5.0
 - FDR image: locally built as <code>fdr-lab:dev</code>
 - FDR chart: the working tree under <code>deploy/helm/fdr</code>
 
@@ -41,7 +43,8 @@ Alertmanager integration.
 
 - Linux with tracefs mounted read-write at <code>/sys/kernel/tracing</code>
 - Docker Engine
-- Kind, Helm, kubectl, curl, jq, and findmnt
+- Kind, Helm, kubectl, curl, jq, findmnt, Git, and the Playwright CLI with
+  Chromium installed (`playwright install chromium`)
 - At least 4 CPU cores, 8 GiB available memory, and 15 GiB free disk space
 - Network access to the Kind node image, Alpine packages, and the official
   Prometheus Community Helm repository
@@ -78,16 +81,16 @@ not need to pass a host-side writable-directory test. The Helm chart's
 <code>tracefs-preflight</code> init container verifies write access from the
 privileged workload before FDR starts.
 
-## Run the lab
+## Run the complete smoke workflow
 
 Read the safety boundary above, then run:
 
 ~~~sh
 export FDR_LAB_ACKNOWLEDGE_HOST_KERNEL=yes
-deploy/kind/lab.sh up
+deploy/kind/lab.sh run
 ~~~
 
-The command is intentionally end-to-end. It:
+The `run` command is intentionally end-to-end and disruptive. It:
 
 1. Builds <code>fdr-lab:dev</code> from the current working tree.
 2. Creates the <code>fdr-lab</code> Kind cluster if it does not exist.
@@ -96,20 +99,49 @@ The command is intentionally end-to-end. It:
 5. Installs kube-prometheus-stack 88.5.4 from the cached chart in <code>monitoring</code>.
 6. Installs FDR in <code>fdr-lab</code> with PodMonitor, PrometheusRule, dashboard,
    and NetworkPolicy resources enabled.
-7. Checks probes and every FDR metric family.
-8. Confirms that real scheduler events reach the capture file.
-9. Queries Prometheus for <code>fdr_ready</code> and the <code>fdr.rules</code>
-   group.
-10. Queries Grafana for the provisioned dashboard UID.
+7. Checks probes and every FDR metric family, confirms real scheduler events
+   reach the capture, and verifies Prometheus and Grafana provisioning.
+8. Captures a healthy Grafana dashboard and the Prometheus FDR target page.
+9. Changes the ConfigMap and requires the checksum-driven rollout to replace
+   the pod.
+10. Installs an unavailable tracepoint, verifies that liveness remains healthy
+    while readiness and <code>fdr_ready</code> degrade, and captures the exact
+    degraded pod in Grafana.
+11. Restores the valid configuration, terminates the persistent collector, and
+    requires Kubernetes to restart the container and return the pod to Ready.
+12. Requires a new bounded rotation and verifies that the current and preserved
+    captures are non-empty regular files with mode <code>0600</code>.
+13. Collects diagnostics, uninstalls FDR, verifies tracefs instance removal from
+    inside the Kind worker, and deletes only the script-owned cluster.
 
 A successful run ends with:
 
 ~~~text
-LAB PASS: FDR captured real host-kernel events and is visible in Prometheus and Grafana
+FULL LAB PASS: lifecycle completed and evidence retained at ...
 ~~~
 
-If a run fails, the cluster is retained. Run
-<code>deploy/kind/lab.sh collect</code> before troubleshooting or teardown.
+Every full run writes a Markdown report, environment details, Kubernetes and
+tracefs diagnostics, logs, metrics, capture samples, and PNG screenshots under
+<code>.build/fdr-lab-artifacts/runs/&lt;UTC timestamp&gt;</code>. A command failure
+collects the same diagnostics and retains the cluster for troubleshooting. An
+operator interrupt also retains the cluster; use <code>collect</code> if more
+evidence is needed before teardown.
+
+The recorded reference run for this workflow is
+[kernel 7.1.8 on 2026-08-29](../../docs/validation/2026-08-29-kind-kernel-7.1.8/report.md).
+
+## Keep a lab running
+
+For interactive inspection without the disruptive failure sequence or
+automatic teardown:
+
+~~~sh
+export FDR_LAB_ACKNOWLEDGE_HOST_KERNEL=yes
+deploy/kind/lab.sh up
+~~~
+
+`up` performs the build, install, real-capture check, Prometheus discovery, and
+Grafana provisioning checks, then leaves the cluster running.
 
 ## Inspect the lab
 
@@ -131,6 +163,10 @@ deploy/kind/lab.sh grafana
 Open <http://127.0.0.1:13000>, sign in with <code>admin</code> /
 <code>fdr-lab</code>, and open **FDR / Kernel Flight Recorder**.
 
+The focused lab profile also permits anonymous Viewer access so the headless
+screenshot step can render the dashboard. Grafana is exposed only through the
+local port-forward; do not copy this authentication setting into production.
+
 The dashboard leads with evidence integrity rather than throughput. A recorder
 can be running while its capture is incomplete, so trace loss, storage drops,
 and write failures remain separately visible.
@@ -139,14 +175,17 @@ and write failures remain separately visible.
 
 ~~~sh
 deploy/kind/lab.sh verify
+deploy/kind/lab.sh smoke
 deploy/kind/lab.sh collect
 ~~~
 
-Collection writes a timestamped directory under
-<code>.build/fdr-lab-artifacts</code> containing cluster state, Kubernetes
-events, FDR logs, preflight logs, rendered observability resources, current
-metrics, a capture sample, and Kind component logs. These are the results to
-bring back when diagnosing a failed lab.
+`verify` repeats the non-disruptive capture and observability checks. `smoke`
+runs the rollout, degradation, collector-recovery, rotation, and screenshot
+checks against the retained cluster but does not delete it. `collect` writes a
+timestamped directory under <code>.build/fdr-lab-artifacts</code> containing
+cluster state, Kubernetes events, FDR and preflight logs, rendered
+observability resources, current metrics, a capture sample, and Kind component
+logs. These are the results to bring back when diagnosing a failed lab.
 
 ## Tear down safely
 
@@ -164,7 +203,7 @@ the script stops and retains the cluster for inspection.
 
 - Production performance or safe CPU limits
 - Multiple independent kernels or genuine per-node tracefs isolation
-- Kernel-version compatibility
+- Kernel-version compatibility beyond the recorded host-kernel run
 - SELinux, AppArmor, or distribution-specific behavior
 - NetworkPolicy enforcement by Kind's default network plugin
 - High-volume, disk-pressure, or destructive failure behavior

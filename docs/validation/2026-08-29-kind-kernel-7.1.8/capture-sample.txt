@@ -1,0 +1,22 @@
+regular file 600 8661532 /var/log/fdr/lab.log
+          <idle>-0       [003] dN.2.  7010.463397: sched_wakeup: comm=fdrd pid=123550 prio=120 target_cpu=003
+          <idle>-0       [000] dN.2.  7010.463417: sched_wakeup: comm=Isolated Web Co pid=45105 prio=120 target_cpu=000
+          <idle>-0       [003] dN.2.  7010.463420: sched_wakeup: comm=fdrd pid=123550 prio=120 target_cpu=003
+          <idle>-0       [004] dNs5.  7010.463482: sched_wakeup: comm=kworker/4:0 pid=73609 prio=120 target_cpu=004
+          <idle>-0       [006] dN.2.  7010.463492: sched_wakeup: comm=fdrd pid=123550 prio=120 target_cpu=006
+          <idle>-0       [003] dNH2.  7010.463498: sched_wakeup: comm=rcu_preempt pid=16 prio=120 target_cpu=003
+          <idle>-0       [000] dNh4.  7010.463866: sched_wakeup: comm=kube-controller pid=8098 prio=120 target_cpu=000
+          <idle>-0       [006] dN.2.  7010.463897: sched_wakeup: comm=fdrd pid=123550 prio=120 target_cpu=006
+          <idle>-0       [003] dNh4.  7010.463912: sched_wakeup: comm=kube-controller pid=110635 prio=120 target_cpu=003
+          <idle>-0       [006] dN.2.  7010.463917: sched_wakeup: comm=fdrd pid=123550 prio=120 target_cpu=006
+regular file 600 16776866 /var/log/fdr/lab.log.1
+          <idle>-0       [004] dNh4.  7008.071527: sched_wakeup: comm=kube-apiserver pid=8434 prio=120 target_cpu=004
+          <idle>-0       [001] dNh4.  7008.071599: sched_wakeup: comm=etcd pid=8083 prio=120 target_cpu=001
+          <idle>-0       [004] dNh4.  7008.071628: sched_wakeup: comm=kube-apiserver pid=8434 prio=120 target_cpu=004
+          <idle>-0       [002] dNh4.  7008.071631: sched_wakeup: comm=kube-scheduler pid=110544 prio=120 target_cpu=002
+          <idle>-0       [004] dNh4.  7008.071691: sched_wakeup: comm=kube-apiserver pid=8447 prio=120 target_cpu=004
+          <idle>-0       [001] dNh4.  7008.071703: sched_wakeup: comm=etcd pid=8083 prio=120 target_cpu=001
+          <idle>-0       [002] dNh4.  7008.071738: sched_wakeup: comm=kube-scheduler pid=110544 prio=120 target_cpu=002
+          <idle>-0       [001] dN.2.  7008.071749: sched_wakeup: comm=kube-apiserver pid=10163 prio=120 target_cpu=001
+          <idle>-0       [007] dN.2.  7008.071757: sched_wakeup: comm=kube-apiserver pid=8434 prio=120 target_cpu=007
+          <idle>-0       [001] dNh4.  7008.071798: sched_wakeup: comm=etcd pid=8083 prio=120 target_cpu=001

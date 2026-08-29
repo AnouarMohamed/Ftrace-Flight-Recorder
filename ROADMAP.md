@@ -62,14 +62,17 @@ Implementation status in the current development tree:
 - [x] Make host module exposure opt-in in Helm and omit it from the base
       Kustomize deployment.
 - [x] Add optional PodMonitor and ingress NetworkPolicy templates.
-- [ ] Validate the hardened deployment on a real disposable cluster.
+- [x] Validate the hardened deployment in a disposable Kind cluster against a
+      real host kernel and retain the run evidence.
+- [ ] Repeat real-kernel validation on the disposable multi-kernel VM matrix.
 - [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
       readiness reflect observed loss.
 - [ ] Validate trace-loss behavior under controlled load.
 
-Do not begin a dashboard or Kubernetes operator before milestones 1 through 3
-are complete. Those components would increase the maintenance surface without
-proving that the recorder itself is dependable.
+Keep the current Grafana dashboard scoped to validation and operations until
+milestones 1 through 3 are complete. Do not begin a Kubernetes operator or
+broader product UI before then; those components would increase the maintenance
+surface without proving that the recorder itself is dependable.
 
 ## Milestone 1: Kubernetes hardening
 
@@ -217,6 +220,12 @@ steps and preserves diagnostics on failure:
 
 The script must collect pod descriptions, logs, rendered manifests, events, and
 relevant tracefs state before teardown when a step fails.
+
+The local implementation is `deploy/kind/lab.sh run`. A recorded pass on Linux
+7.1.8, including healthy/degraded Grafana screenshots and the Prometheus target,
+is stored in
+[`docs/validation/2026-08-29-kind-kernel-7.1.8/`](docs/validation/2026-08-29-kind-kernel-7.1.8/report.md).
+This closes the single-host Kind integration gate, not the kernel matrix below.
 
 ### CI strategy
 

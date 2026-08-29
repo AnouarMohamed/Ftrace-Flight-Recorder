@@ -1,0 +1,91 @@
+Linux fedora 7.1.8-100.fc43.x86_64 #1 SMP PREEMPT_DYNAMIC Mon Aug 10 03:32:13 UTC 2026 x86_64 GNU/Linux
+
+Host OS:
+NAME="Fedora Linux"
+VERSION="43 (Workstation Edition)"
+RELEASE_TYPE=stable
+ID=fedora
+VERSION_ID=43
+VERSION_CODENAME=""
+PRETTY_NAME="Fedora Linux 43 (Workstation Edition)"
+ANSI_COLOR="0;38;2;60;110;180"
+LOGO=fedora-logo-icon
+CPE_NAME="cpe:/o:fedoraproject:fedora:43"
+DEFAULT_HOSTNAME="fedora"
+HOME_URL="https://fedoraproject.org/"
+DOCUMENTATION_URL="https://docs.fedoraproject.org/en-US/fedora/f43/"
+SUPPORT_URL="https://ask.fedoraproject.org/"
+BUG_REPORT_URL="https://bugzilla.redhat.com/"
+REDHAT_BUGZILLA_PRODUCT="Fedora"
+REDHAT_BUGZILLA_PRODUCT_VERSION=43
+REDHAT_SUPPORT_PRODUCT="Fedora"
+REDHAT_SUPPORT_PRODUCT_VERSION=43
+SUPPORT_END=2026-12-02
+VARIANT="Workstation Edition"
+VARIANT_ID=workstation
+
+CPU count: 8
+Cgroup filesystem: cgroup2
+Root filesystem: btrfs
+Client: Docker Engine - Community
+ Version:           29.7.2
+ API version:       1.55
+ Go version:        go1.26.5
+ Git commit:        a7dcaa6
+ Built:             Wed Aug  5 18:32:44 2026
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.7.2
+  API version:      1.55 (minimum version 1.40)
+  Go version:       go1.26.5
+  Git commit:       6a43e3d
+  Built:            Wed Aug  5 18:28:38 2026
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.3.3
+  GitCommit:        aad11006b869517fcd3009450b6f82da282e1a9b
+ runc:
+  Version:          1.4.3
+  GitCommit:        v1.4.3-0-gbb14dabe
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+kind v0.31.0 go1.25.9 X:nodwarf5 linux/amd64
+clientVersion:
+  buildDate: "2026-06-11T18:12:06Z"
+  compiler: gc
+  gitCommit: 24e2b02af5543d7910c2bb074c7264df5a8f0467
+  gitTreeState: clean
+  gitVersion: v1.36.2
+  goVersion: go1.26.4
+  major: "1"
+  minor: "36"
+  platform: linux/amd64
+kustomizeVersion: v5.8.1
+serverVersion:
+  buildDate: "2025-12-17T12:32:07Z"
+  compiler: gc
+  emulationMajor: "1"
+  emulationMinor: "35"
+  gitCommit: 66452049f3d692768c39c797b21b793dce80314e
+  gitTreeState: clean
+  gitVersion: v1.35.0
+  goVersion: go1.25.5
+  major: "1"
+  minCompatibilityMajor: "1"
+  minCompatibilityMinor: "34"
+  minor: "35"
+  platform: linux/amd64
+
+version.BuildInfo{Version:"v3.21.2", GitCommit:"125963406833fe0525be91f46c8b5b0f22fb9e32", GitTreeState:"clean", GoVersion:"go1.26.4"}
+## main...origin/main
+ M deploy/kind/README.md
+ M deploy/kind/fdr-values.yaml
+ M deploy/kind/lab.sh
+ M deploy/kind/monitoring-values.yaml
+9eecc9f00b42535b83b00c583e6e05756386263a
+image_id=sha256:54b04bfadd24f79dfeabbd34cfa38fdca4f6168d617c5a6f54cbc018a217f172 created=2026-08-24T20:10:30.932979032+01:00

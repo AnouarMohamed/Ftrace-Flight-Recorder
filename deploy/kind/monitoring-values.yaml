@@ -9,9 +9,16 @@ alertmanager:
 
 grafana:
   enabled: true
+  image:
+    repository: grafana/grafana
+    tag: 11.5.2
   adminUser: admin
   adminPassword: fdr-lab
   defaultDashboardsEnabled: false
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
   sidecar:
     dashboards:
       enabled: true
@@ -44,12 +51,21 @@ nodeExporter:
   enabled: false
 
 prometheusOperator:
+  # The lab does not expose the operator or enable its admission webhook, so
+  # avoid mounting the webhook certificate secret that the focused profile
+  # intentionally does not create.
+  tls:
+    enabled: false
   admissionWebhooks:
     enabled: false
 
 prometheus:
   enabled: true
   prometheusSpec:
+    image:
+      registry: docker.io
+      repository: prom/prometheus
+      tag: v3.5.0
     evaluationInterval: 15s
     scrapeInterval: 15s
     retention: 2h
