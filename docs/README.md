@@ -17,6 +17,7 @@ shortest path to a working capture.
 | Run the local Prometheus and Grafana lab | [Kind lab](../deploy/kind/README.md) |
 | Test real kernels in disposable VMs | [VM validation](../tests/vm/README.md) |
 | Review what has been proven | [Validation evidence](validation/README.md) |
+| Review the performance work and compatibility gates | [Performance optimization plan](performance-optimization-plan.md) |
 | Review changes since the last release | [Changelog](../CHANGELOG.md) |
 | Understand planned work and limits | [Roadmap](../ROADMAP.md) |
 

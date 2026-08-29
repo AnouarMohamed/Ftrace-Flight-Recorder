@@ -256,6 +256,10 @@ Definition of done:
 The goal is not to publish a single impressive number. The goal is to describe
 where FDR remains reliable and how it fails when pushed beyond that range.
 
+The implementation sequence, compatibility contract, benchmark gates, text
+collector optimizations, raw capture investigation, and snapshot path are
+specified in the [performance optimization plan](docs/performance-optimization-plan.md).
+
 ### Scenarios
 
 Measure at least these workloads:
