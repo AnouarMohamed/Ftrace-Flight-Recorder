@@ -1,0 +1,36 @@
+## Summary
+
+This project is based on Oracle's `fdr` daemon (https://github.com/oracle/fdr),
+released under the UPL. The current `LICENSE.txt` genericized the copyright
+line to "contributors" without retaining Oracle's original notice, which
+UPL requires to be kept in copies or substantial portions of the software.
+Oracle's own source additionally carries an explicit "DO NOT ALTER OR REMOVE
+COPYRIGHT NOTICES" instruction, which this repo wasn't honoring.
+
+This PR fixes that gap and makes the project's lineage explicit rather than
+implicit.
+
+## Changes
+
+- **Add `NOTICE`**: states that this project is based on `oracle/fdr`,
+  links to the upstream repo, and summarizes what's original to this
+  project (HTTP health/readiness/Prometheus endpoints, transactional
+  reload handling, Kubernetes/Helm deployment tooling, expanded test and
+  validation suite) versus inherited from the original design.
+- **Update `LICENSE.txt`**: restore Oracle's original copyright line
+  (`Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.`)
+  alongside the existing contributor copyright line, and point to `NOTICE`
+  for details.
+
+## Why now
+
+No functional or behavioral changes — this is a documentation/compliance
+fix. Flagged during a code review pass; fixing before it's the kind of
+thing a downstream user or auditor discovers on their own.
+
+## Follow-up (not in this PR)
+
+- Confirm whether any individual `.c`/`.h` files are close enough to
+  Oracle's originals to warrant a per-file header comment (matching
+  Oracle's own convention in `fdrd.c`), versus being substantially
+  rewritten and only needing the repo-level notice.
