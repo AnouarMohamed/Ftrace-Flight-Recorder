@@ -1,5 +1,18 @@
 /*
- * config.c - strict configuration file parsing
+ * config.c - Strict configuration file parsing, lexical analysis, and AST construction
+ *
+ * Licensed under the Universal Permissive License (UPL), Version 1.0.
+ *
+ * Overview:
+ * This module implements strict, deterministic configuration parsing for FDR:
+ * - Scans `/etc/fdr.d` configuration files in lexical order using glob(3).
+ * - Each regular `*.conf` file defines exactly one tracefs instance.
+ * - Parses line-by-line into an Abstract Syntax Tree (AST) of `struct fdr_item`
+ *   nodes attached to a `struct fdr_instance`.
+ * - Enforces strict security invariants: rejects path traversal, relative paths,
+ *   invalid probe naming, duplicate instances, and syntax errors.
+ * - Supports dry-run validation (`fdrd -n -c <dir>`) without touching kernel state.
+ * - Provides transactional memory cleanup (`fdr_config_free`) used during SIGHUP reloads.
  */
 
 #include "fdr.h"
@@ -13,6 +26,15 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/**
+ * fdr_item_append - Appends a parsed directive item to an instance's item list.
+ *
+ * Traverses to the end of `insp->items` and appends `item` to preserve exact
+ * configuration file directive order.
+ *
+ * @insp: Target instance.
+ * @item: Newly allocated and populated directive AST node.
+ */
 static void
 fdr_item_append(struct fdr_instance *insp, struct fdr_item *item)
 {
@@ -23,6 +45,13 @@ fdr_item_append(struct fdr_instance *insp, struct fdr_item *item)
 	*tail = item;
 }
 
+/**
+ * fdr_instance_free_one - Releases all heap memory allocated for a single instance.
+ *
+ * Frees the linked list of `struct fdr_item` directive nodes, then frees `insp`.
+ *
+ * @insp: Pointer to instance structure to deallocate.
+ */
 static void
 fdr_instance_free_one(struct fdr_instance *insp)
 {
@@ -37,6 +66,12 @@ fdr_instance_free_one(struct fdr_instance *insp)
 	free(insp);
 }
 
+/**
+ * fdr_config_free - Deallocates all loaded instances and their parsed AST directives.
+ *
+ * Clears `fdr.instances` to NULL and resets `fdr.instance_count` to 0.
+ * Invoked during daemon shutdown and transactional configuration reloads.
+ */
 void
 fdr_config_free(void)
 {
@@ -52,6 +87,15 @@ fdr_config_free(void)
 	fdr.instance_count = 0;
 }
 
+/**
+ * fdr_trim - Strips leading and trailing ASCII whitespace in-place.
+ *
+ * Modifies the string by advancing past leading whitespace and overwriting
+ * trailing whitespace characters with null bytes.
+ *
+ * @text: Pointer to mutable character string.
+ * Return: Pointer to first non-whitespace character within `text`.
+ */
 static char *
 fdr_trim(char *text)
 {
@@ -65,6 +109,15 @@ fdr_trim(char *text)
 	return text;
 }
 
+/**
+ * fdr_next_token - Extracts the next whitespace-delimited token from a cursor.
+ *
+ * Replaces the delimiter following the token with a null byte ('\0') and advances
+ * the cursor to point to the remainder of the line.
+ *
+ * @cursor: Pointer to string pointer tracking parse position.
+ * Return: Pointer to beginning of the extracted token, or NULL if end of line.
+ */
 static char *
 fdr_next_token(char **cursor)
 {
@@ -86,6 +139,16 @@ fdr_next_token(char **cursor)
 	return start;
 }
 
+/**
+ * fdr_valid_name - Validates instance or kernel module identifier strings.
+ *
+ * Valid characters: alphanumeric, '_', '-', '.', and optionally ':' for modules.
+ * Rejects empty strings and directory navigation names ("." and "..").
+ *
+ * @name: String identifier to validate.
+ * @module_name: Flag: 1 if validating a kernel module name (allows ':'), 0 for instance names.
+ * Return: 1 if valid, 0 if invalid.
+ */
 static int
 fdr_valid_name(const char *name, int module_name)
 {
@@ -103,6 +166,15 @@ fdr_valid_name(const char *name, int module_name)
 	return 1;
 }
 
+/**
+ * fdr_valid_probe - Validates a kernel tracepoint probe specifier ("subsystem/event").
+ *
+ * Verifies that the string contains exactly one '/' separating valid subsystem
+ * and event identifiers (e.g. "sched/sched_switch", "nfs4/all").
+ *
+ * @target: Probe target string.
+ * Return: 1 if format is valid, 0 if invalid.
+ */
 static int
 fdr_valid_probe(const char *target)
 {
@@ -118,6 +190,14 @@ fdr_valid_probe(const char *target)
 	return fdr_valid_name(copy, 0) && fdr_valid_name(slash, 0);
 }
 
+/**
+ * fdr_parse_error - Formats and logs a configuration syntax error message.
+ *
+ * @fpath: Path to configuration file containing the error.
+ * @line: 1-indexed line number.
+ * @message: Descriptive error message.
+ * Return: Always returns -1 for convenient error bubbling.
+ */
 static int
 fdr_parse_error(const char *fpath, int line, const char *message)
 {
@@ -125,6 +205,23 @@ fdr_parse_error(const char *fpath, int line, const char *message)
 	return -1;
 }
 
+/**
+ * fdr_parse_line - Parses a single configuration line and updates instance AST.
+ *
+ * Handles directives:
+ * - `instance <name> [bufsize]`: Allocates tracefs instance name and buffer size.
+ * - `modprobe <module>`: Queues kernel module load before enabling probes.
+ * - `enable <subsystem/event> [filter]`: Enables tracepoint with optional filter.
+ * - `disable <subsystem/event>`: Disables tracepoint or whole subsystem.
+ * - `saveto <path> [maxsize]`: Sets output destination and bounded rotation size.
+ * - `minfree <percentage>`: Sets filesystem free space drop threshold (1-100%).
+ *
+ * @insp: Target instance being constructed.
+ * @fpath: File path of configuration file.
+ * @line: Line number for error reporting.
+ * @linebuf: Mutable line content buffer.
+ * Return: 0 on success, or -1 on syntax/validation error.
+ */
 static int
 fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
     char *linebuf)
@@ -135,14 +232,19 @@ fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
 
 	fdr_chomp_line(linebuf);
 	cursor = fdr_trim(linebuf);
+
+	/* Skip blank lines and full-line comments */
 	if (*cursor == '\0' || *cursor == '#')
 		return 0;
 
 	verb = fdr_next_token(&cursor);
 	target = fdr_next_token(&cursor);
 	option = fdr_trim(cursor);
+
 	if (target == NULL)
 		return fdr_parse_error(fpath, line, "directive requires a value");
+
+	/* Invariant: The very first non-comment directive in any file must be 'instance' */
 	if (insp->items == NULL && strcmp(verb, "instance") != 0)
 		return fdr_parse_error(fpath, line,
 		    "the first directive must be 'instance'");
@@ -186,6 +288,7 @@ fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
 				return fdr_parse_error(fpath, line,
 				    "instance buffer size is too large");
 			}
+			/* Convert bytes to KiB for kernel buffer_size_kb */
 			insp->bufsize_kb = (size + UINT64_C(1023)) / 1024;
 		}
 	} else if (strcmp(verb, "modprobe") == 0) {
@@ -261,6 +364,13 @@ fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
 	return 0;
 }
 
+/**
+ * fdr_config_parse_line_test - Unit test helper to parse a single directive string.
+ *
+ * @insp: Target instance.
+ * @line: Directive text line to parse.
+ * Return: 0 on success, or -1 on error.
+ */
 int
 fdr_config_parse_line_test(struct fdr_instance *insp, const char *line)
 {
@@ -271,6 +381,12 @@ fdr_config_parse_line_test(struct fdr_instance *insp, const char *line)
 	return fdr_parse_line(insp, "<test>", 1, copy);
 }
 
+/**
+ * fdr_duplicate_instance - Checks if an instance name is already loaded in fdr.instances.
+ *
+ * @name: Instance name to check.
+ * Return: 1 if duplicate found, 0 if unique.
+ */
 static int
 fdr_duplicate_instance(const char *name)
 {
@@ -283,6 +399,16 @@ fdr_duplicate_instance(const char *name)
 	return 0;
 }
 
+/**
+ * fdr_read_config_file - Reads and parses a single configuration file.
+ *
+ * Verifies that `fpath` is a regular file (not a directory or symlink), allocates
+ * a `struct fdr_instance`, parses directives line by line, verifies that the instance
+ * name is unique across the daemon, and appends it to `fdr.instances`.
+ *
+ * @fpath: Full filesystem path to the .conf file.
+ * Return: 0 on success, or -1 on parse/validation/I/O error.
+ */
 static int
 fdr_read_config_file(const char *fpath)
 {
@@ -313,6 +439,7 @@ fdr_read_config_file(const char *fpath)
 
 	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
 		line++;
+		/* Guard against lines exceeding FDR_CONFIG_LINE_MAX */
 		if (strchr(linebuf, '\n') == NULL && !feof(fp)) {
 			int ch;
 
@@ -351,6 +478,15 @@ out:
 	return rc;
 }
 
+/**
+ * fdr_config_load - Scans a directory and loads all *.conf configuration files.
+ *
+ * Uses glob(3) to locate matching files in lexical sort order. Fails cleanly if
+ * no configuration files are found or if any file contains syntax errors.
+ *
+ * @dir: Directory path to scan (e.g. "/etc/fdr.d").
+ * Return: 0 on successful loading of all files, or -1 on failure.
+ */
 int
 fdr_config_load(const char *dir)
 {
@@ -386,3 +522,4 @@ fdr_config_load(const char *dir)
 	globfree(&matches);
 	return rc;
 }
+
