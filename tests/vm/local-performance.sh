@@ -12,6 +12,9 @@ kernel=${1:-$(uname -r)}
 baseline_ref=${FDR_PERF_BASELINE_REF:-fc0208a}
 baseline_tree="$repo_root/.build/perf-baseline-src"
 build_image=${FDR_PERF_BUILD_IMAGE:-golang:1.26.5-bookworm}
+trace_cmd_image=${FDR_PERF_TRACE_CMD_IMAGE:-python:3.12-slim-bookworm}
+trace_cmd_version=${FDR_PERF_TRACE_CMD_VERSION:-3.1.6-1}
+trace_cmd_bundle="$repo_root/.build/trace-cmd-$trace_cmd_version"
 profile_mode=${FDR_PERF_MODE:-full}
 profile=${kernel//[^[:alnum:]._-]/-}
 profile_dir="$run_dir/$profile"
@@ -66,6 +69,37 @@ build_candidates()
 	'
 }
 
+build_trace_cmd_bundle()
+{
+	if [ -x "$trace_cmd_bundle/usr/bin/trace-cmd" ] &&
+	    grep -Fxq "$trace_cmd_version" "$trace_cmd_bundle/VERSION"; then
+		return
+	fi
+	rm -rf -- "$trace_cmd_bundle"
+	mkdir -p "$trace_cmd_bundle"
+	docker run --rm --security-opt label=disable \
+	    --env "BUNDLE_UID=$(id -u)" --env "BUNDLE_GID=$(id -g)" \
+	    --env "TRACE_CMD_VERSION=$trace_cmd_version" \
+	    --volume "$trace_cmd_bundle:/bundle" \
+	    --entrypoint /bin/sh "$trace_cmd_image" -ceu '
+		apt-get update >/dev/null
+		apt-get install -y --no-install-recommends \
+		    "trace-cmd=$TRACE_CMD_VERSION" >/dev/null
+		installed=$(dpkg-query -W trace-cmd | awk "{ print \$2 }")
+		[ "$installed" = "$TRACE_CMD_VERSION" ]
+		install -D -m 0755 /usr/bin/trace-cmd /bundle/usr/bin/trace-cmd
+		install -D -m 0644 /lib/x86_64-linux-gnu/libtraceevent.so.1 \
+		    /bundle/lib/x86_64-linux-gnu/libtraceevent.so.1
+		install -D -m 0644 /lib/x86_64-linux-gnu/libtracefs.so.1 \
+		    /bundle/lib/x86_64-linux-gnu/libtracefs.so.1
+		mkdir -p /bundle/usr/lib/x86_64-linux-gnu/traceevent
+		cp -a /usr/lib/x86_64-linux-gnu/traceevent/plugins \
+		    /bundle/usr/lib/x86_64-linux-gnu/traceevent/
+		printf "%s\n" "$installed" >/bundle/VERSION
+		chown -R "$BUNDLE_UID:$BUNDLE_GID" /bundle
+	'
+}
+
 prepare_root()
 {
 	mkdir -p "$root_tree"
@@ -82,6 +116,7 @@ prepare_root()
 	mkdir -p "$root_tree/usr/lib/modules" "$root_tree/usr/local/sbin" \
 	    "$root_tree/etc/systemd/system"
 	cp -a "/usr/lib/modules/$kernel" "$root_tree/usr/lib/modules/"
+	cp -a "$trace_cmd_bundle"/. "$root_tree"/
 	cat >"$root_tree/usr/local/sbin/fdr-local-performance-boot" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -129,6 +164,7 @@ EOF
 
 mkdir -p "$profile_dir"
 build_candidates
+build_trace_cmd_bundle
 prepare_root
 rm -f "$overlay"
 qemu-img create -q -f qcow2 -F raw -b "$root_image" "$overlay" 8G
@@ -136,6 +172,8 @@ qemu-img create -q -f qcow2 -F raw -b "$root_image" "$overlay" 8G
 	printf 'kernel=%s\n' "$kernel"
 	printf 'baseline_ref=%s\n' "$baseline_ref"
 	printf 'build_image=%s\n' "$build_image"
+	printf 'trace_cmd_image=%s\n' "$trace_cmd_image"
+	printf 'trace_cmd_version=%s\n' "$trace_cmd_version"
 	printf 'profile_mode=%s\n' "$profile_mode"
 	printf 'source_commit=%s\n' "$(git -C "$repo_root" rev-parse HEAD)"
 	printf 'source_dirty=%s\n' "$(git -C "$repo_root" status --porcelain | wc -l)"

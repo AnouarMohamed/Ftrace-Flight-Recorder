@@ -263,7 +263,36 @@ run_backend_probe()
 		    }
 		} END { print bytes + 0, operations + 0, errors + 0 }' "$summary"
 	)
-	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	printf '0\n' >"$instance/tracing_on"
+	decoded_switches=0
+	decoded_wakeups=0
+	if [ "$mode" = raw ] && [ "$status" = PASS ]; then
+		partial="$output_dir/trace-partial.dat"
+		trace_dat="$result_dir/backend-raw.trace.dat"
+		mapfile -t raw_files < <(find "$output_dir" -maxdepth 1 \
+		    -type f -name 'cpu*.raw' | sort -V)
+		[ "${#raw_files[@]}" -eq "$output_files" ]
+		trace-cmd restore -c -t "$instance" -k /proc/kallsyms \
+		    -o "$partial"
+		trace-cmd restore -i "$partial" -o "$trace_dat" \
+		    "${raw_files[@]}"
+		trace-cmd dump -i "$trace_dat" \
+		    >"$result_dir/backend-raw-dump.txt"
+		LC_ALL=C trace-cmd report -i "$trace_dat" \
+		    2>"$result_dir/backend-raw-report-errors.txt" | \
+		    awk -v sample="$result_dir/backend-raw-report-sample.txt" '
+		        /sched_switch:/ { switches++ }
+		        /sched_wakeup:/ { wakeups++ }
+		        lines < 20 { print >sample; lines++ }
+		        END { print switches + 0, wakeups + 0 }
+		    ' >"$result_dir/backend-raw-decoded-counts.txt"
+		read -r decoded_switches decoded_wakeups < \
+		    "$result_dir/backend-raw-decoded-counts.txt"
+		[ "$decoded_switches" -gt 0 ]
+		[ "$decoded_wakeups" -gt 0 ]
+		sha256sum "$trace_dat" >"$result_dir/backend-raw.trace.dat.sha256"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 	    "$mode" "$status" "$output_files" "$output_bytes" \
 	    "$reported_bytes" "$operations" "$capture_errors" \
 	    "$((user_finish - user_start))" \
@@ -272,8 +301,8 @@ run_backend_probe()
 	    "$((writes_finish - writes_start))" \
 	    "$((rchar_finish - rchar_start))" \
 	    "$((wchar_finish - wchar_start))" "$vmhwm" "$overruns" \
-	    "$trace_dropped" "$commit" >>"$backend_results"
-	printf '0\n' >"$instance/tracing_on"
+	    "$trace_dropped" "$commit" "$decoded_switches" \
+	    "$decoded_wakeups" >>"$backend_results"
 	rm -rf -- "$output_dir"
 	rmdir "$instance"
 	if [ "$status" = PASS ]; then
@@ -286,7 +315,7 @@ run_backend_probe()
 	[ "$mode" != text ] || [ "$status" = PASS ]
 }
 
-printf 'mode\tstatus\tfiles\toutput_bytes\treported_bytes\toperations\tcapture_errors\tuser_ticks\tsystem_ticks\tread_calls\twrite_calls\trchar\twchar\tvmhwm_kb\ttrace_overruns\ttrace_dropped\tcommit_overruns\n' >"$backend_results"
+printf 'mode\tstatus\tfiles\toutput_bytes\treported_bytes\toperations\tcapture_errors\tuser_ticks\tsystem_ticks\tread_calls\twrite_calls\trchar\twchar\tvmhwm_kb\ttrace_overruns\ttrace_dropped\tcommit_overruns\tdecoded_switches\tdecoded_wakeups\n' >"$backend_results"
 run_backend_probe text
 run_backend_probe raw
 
@@ -307,10 +336,10 @@ run_backend_probe raw
 	fi
 	printf '\n## Additive per-CPU backend probe\n\n'
 	printf 'The probe is experimental and does not change FDR text mode. '
-	printf 'Raw output is not a qualified `trace.dat`.\n\n'
-	printf '| Mode | Status | Files | Bytes | User ticks | System ticks | VmHWM KiB | Loss |\n'
-	printf '|---|---|---:|---:|---:|---:|---:|---:|\n'
-	awk -F '\t' 'NR > 1 { printf "| %s | %s | %s | %s | %s | %s | %s | %d |\n", $1, $2, $3, $4, $8, $9, $14, $15 + $16 + $17 }' \
+	printf 'Raw output must decode as a standard `trace.dat` before integration.\n\n'
+	printf '| Mode | Status | Files | Bytes | User ticks | System ticks | VmHWM KiB | Loss | Decoded events |\n'
+	printf '|---|---|---:|---:|---:|---:|---:|---:|---:|\n'
+	awk -F '\t' 'NR > 1 { printf "| %s | %s | %s | %s | %s | %s | %s | %d | %d |\n", $1, $2, $3, $4, $8, $9, $14, $15 + $16 + $17, $18 + $19 }' \
 	    "$backend_results"
 } >"$result_dir/report.md"
 journalctl -u fdr --no-pager >"$result_dir/fdr-journal.txt"
