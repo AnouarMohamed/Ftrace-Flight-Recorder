@@ -13,6 +13,6 @@
 # Deployment changes may be reviewed by either maintainer account.
 /deploy/ @AnouarMohamed @MischiefBrew
 
-# Keep repository policy, automation, and security ownership explicit.
-/.github/ @AnouarMohamed
-/SECURITY.md @AnouarMohamed
+# Keep repository policy, automation, and security jointly reviewable.
+/.github/ @AnouarMohamed @MischiefBrew
+/SECURITY.md @AnouarMohamed @MischiefBrew
