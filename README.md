@@ -1,5 +1,14 @@
 # Flight Data Recorder
 
+[![CI](https://img.shields.io/github/actions/workflow/status/AnouarMohamed/Ftrace-Flight-Recorder/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/AnouarMohamed/Ftrace-Flight-Recorder/actions/workflows/ci.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/AnouarMohamed/Ftrace-Flight-Recorder/codeql.yml?branch=main&style=flat-square&label=CodeQL)](https://github.com/AnouarMohamed/Ftrace-Flight-Recorder/actions/workflows/codeql.yml)
+[![Dependency Review](https://img.shields.io/github/actions/workflow/status/AnouarMohamed/Ftrace-Flight-Recorder/dependency-review.yml?event=pull_request&style=flat-square&label=Dependency%20Review)](https://github.com/AnouarMohamed/Ftrace-Flight-Recorder/actions/workflows/dependency-review.yml)
+[![Container](https://img.shields.io/github/actions/workflow/status/AnouarMohamed/Ftrace-Flight-Recorder/publish-image.yml?event=workflow_dispatch&style=flat-square&label=Container)](https://github.com/AnouarMohamed/Ftrace-Flight-Recorder/actions/workflows/publish-image.yml)
+
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/AnouarMohamed/Ftrace-Flight-Recorder/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/AnouarMohamed/Ftrace-Flight-Recorder)
+[![Release](https://img.shields.io/github/v/release/AnouarMohamed/Ftrace-Flight-Recorder?style=flat-square&label=Release)](https://github.com/AnouarMohamed/Ftrace-Flight-Recorder/releases/latest)
+[![License](https://img.shields.io/github/license/AnouarMohamed/Ftrace-Flight-Recorder?style=flat-square)](LICENSE.txt)
+
 FDR is a small Linux daemon that continuously records selected kernel ftrace
 events into bounded files. It is designed to preserve evidence for failures
 that are difficult to reproduce, such as scheduler stalls, network errors,
