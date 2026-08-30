@@ -9,9 +9,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 env:
   REGISTRY: ghcr.io
@@ -19,6 +16,11 @@ env:
 
 jobs:
   build-and-push:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

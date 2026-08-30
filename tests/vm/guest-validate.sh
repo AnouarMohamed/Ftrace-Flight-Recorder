@@ -5,6 +5,8 @@ source_tar=$1
 result_dir=$2
 run_k3s=${RUN_K3S:-0}
 k3s_version=${K3S_VERSION:-v1.35.5+k3s1}
+k3s_install_sha256=${K3S_INSTALL_SHA256:-8598e002e61d658fed7b7542fc6d2c66d8da6eae69e088830105d2ee1ffb6d91}
+k3s_installer=
 source_dir=/var/tmp/fdr-source
 config=/etc/fdr.d/vm.conf
 
@@ -15,6 +17,7 @@ finish()
 {
 	rc=$?
 	trap - EXIT
+	[ -z "$k3s_installer" ] || rm -f "$k3s_installer"
 	if [ "$rc" -ne 0 ]; then
 		printf 'FAILED\n' >"$result_dir/status.txt"
 		journalctl -u fdr --no-pager >"$result_dir/fdr-journal.txt" 2>&1 || true
@@ -215,9 +218,18 @@ done
 k3s_status=SKIPPED
 if [ "$run_k3s" -eq 1 ]; then
 	printf 'Running single-node k3s smoke test\n'
-	curl -sfL https://get.k3s.io | \
-	    INSTALL_K3S_VERSION="$k3s_version" \
-	    INSTALL_K3S_EXEC='server --disable=traefik --disable=servicelb' sh -
+	k3s_installer=$(mktemp)
+	curl --fail --silent --show-error --location \
+	    --proto '=https' --tlsv1.2 \
+	    "https://raw.githubusercontent.com/k3s-io/k3s/${k3s_version}/install.sh" \
+	    --output "$k3s_installer"
+	printf '%s  %s\n' "$k3s_install_sha256" "$k3s_installer" | \
+	    sha256sum --check --strict -
+	INSTALL_K3S_VERSION="$k3s_version" \
+	INSTALL_K3S_EXEC='server --disable=traefik --disable=servicelb' \
+	    sh "$k3s_installer"
+	rm -f "$k3s_installer"
+	k3s_installer=
 	for _ in {1..120}; do
 		k3s kubectl get node 2>/dev/null | grep -q ' Ready ' && break
 		sleep 2
