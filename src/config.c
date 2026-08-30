@@ -35,6 +35,15 @@
  * @insp: Target instance.
  * @item: Newly allocated and populated directive AST node.
  */
+/**
+ * fdr_item_append - Appends a parsed directive item to an instance's item list.
+ *
+ * Traverses to the end of `insp->items` and appends `item` to preserve exact
+ * configuration file directive order.
+ *
+ * @insp: Target instance.
+ * @item: Newly allocated and populated directive AST node.
+ */
 static void
 fdr_item_append(struct fdr_instance *insp, struct fdr_item *item)
 {
@@ -118,6 +127,15 @@ fdr_trim(char *text)
  * @cursor: Pointer to string pointer tracking parse position.
  * Return: Pointer to beginning of the extracted token, or NULL if end of line.
  */
+/**
+ * fdr_next_token - Extracts the next whitespace-delimited token from a cursor.
+ *
+ * Replaces the delimiter following the token with a null byte ('\0') and advances
+ * the cursor to point to the remainder of the line.
+ *
+ * @cursor: Pointer to string pointer tracking parse position.
+ * Return: Pointer to beginning of the extracted token, or NULL if end of line.
+ */
 static char *
 fdr_next_token(char **cursor)
 {
@@ -190,6 +208,14 @@ fdr_valid_probe(const char *target)
 	return fdr_valid_name(copy, 0) && fdr_valid_name(slash, 0);
 }
 
+/**
+ * fdr_parse_error - Formats and logs a configuration syntax error message.
+ *
+ * @fpath: Path to configuration file containing the error.
+ * @line: 1-indexed line number.
+ * @message: Descriptive error message.
+ * Return: Always returns -1 for convenient error bubbling.
+ */
 /**
  * fdr_parse_error - Formats and logs a configuration syntax error message.
  *

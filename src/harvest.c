@@ -58,6 +58,14 @@
  *
  * @signo: Signal number received.
  */
+/**
+ * fdr_sighup_worker - Signal handler for worker processes receiving SIGHUP or SIGUSR1.
+ *
+ * Sets the async-signal-safe flag `fdr.got_sighup` to 1, notifying the harvest loop
+ * to reopen the destination log file on the next read iteration.
+ *
+ * @signo: Signal number received.
+ */
 static void
 fdr_sighup_worker(int signo)
 {
