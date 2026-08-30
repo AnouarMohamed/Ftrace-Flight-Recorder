@@ -34,6 +34,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Reject parent-directory components in `saveto` paths to prevent configuration-driven path traversal.
 - Pin Kubernetes and Helm deployment images to the tested application release
   instead of a floating tag.
 - Restrict default scheduling to Linux nodes, require explicit tolerations,
