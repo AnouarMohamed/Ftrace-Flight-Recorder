@@ -28,5 +28,8 @@ updates:
       container-base-image:
         patterns:
           - "*"
+    ignore:
+      # Local Kustomize placeholder, not an image published on Docker Hub.
+      - dependency-name: fdr
     commit-message:
       prefix: build
