@@ -1,0 +1,18 @@
+# Default ownership for repository changes.
+* @AnouarMohamed
+
+# Runtime and build-system changes stay with the primary account.
+/src/ @AnouarMohamed
+/Makefile @AnouarMohamed
+
+# Documentation and tests are routed to the secondary maintainer account.
+/docs/ @MischiefBrew
+/tests/ @MischiefBrew
+/README.md @MischiefBrew
+
+# Deployment changes may be reviewed by either maintainer account.
+/deploy/ @AnouarMohamed @MischiefBrew
+
+# Keep repository policy, automation, and security jointly reviewable.
+/.github/ @AnouarMohamed @MischiefBrew
+/SECURITY.md @AnouarMohamed @MischiefBrew
