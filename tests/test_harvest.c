@@ -8,8 +8,8 @@
  * 2. Normal Trace Harvesting: Verifies byte-accurate persistence from FIFO/trace_pipe to disk.
  * 3. Log Rotation: Tests bounded size rotation and `.1` backup creation.
  * 4. External Signal Reopen: Verifies SIGHUP/SIGUSR1 handler reopens file after out-of-band rename.
- * 5. Failure Recovery: Simulates rotation failure (read-only filesystem permissions), tests retry
- *    rate-limiting and automatic recovery once permissions are restored.
+ * 5. Failure Recovery: Simulates rotation failure (conflicting backup directory), tests retry
+ *    rate-limiting and automatic recovery once the conflict is removed.
  */
 
 #include "fdr.h"
@@ -195,11 +195,11 @@ test_signal_reopen(void)
  * test_rotation_failure_recovery - Tests rate-limited retries and recovery during rotation errors.
  *
  * Sequence:
- * 1. Simulates filesystem permission error by making parent directory read-only (`chmod 0500`).
+ * 1. Creates a directory at the backup path so rename(2) fails consistently for every UID.
  * 2. Feeds trace data to trigger rotation; verifies rotation failure counter increments,
  *    incoming bytes are dropped, and readiness degrades (`healthy = 0`).
  * 3. Verifies consecutive writes within the 1-second backoff window are dropped without spamming rename(2).
- * 4. Restores directory write permissions (`chmod 0700`) and waits past the backoff timer.
+ * 4. Removes the conflicting directory and waits past the backoff timer.
  * 5. Feeds new data; verifies rotation succeeds and logs are backed up properly.
  */
 static void
@@ -232,6 +232,7 @@ test_rotation_failure_recovery(void)
 	    (int)sizeof(backup));
 	assert(mkfifo(tracepipe, 0600) == 0);
 	write_trace(logfile, full);
+	assert(mkdir(backup, 0700) == 0);
 
 	fdr_instance_init(&instance);
 	assert(fdr_copy_field(instance.iname, sizeof(instance.iname),
@@ -247,9 +248,6 @@ test_rotation_failure_recovery(void)
 	failures_before = fdr_metrics_load_u64(&fdr.metrics->rotation_failures);
 	rotations_before = fdr_metrics_load_u64(&fdr.metrics->rotations);
 	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
-
-	/* Make directory read-only to force rename(2) to fail with EACCES */
-	assert(chmod(tempdir, 0500) == 0);
 
 	child = fork();
 	assert(child >= 0);
@@ -271,8 +269,8 @@ test_rotation_failure_recovery(void)
 	assert(fdr_metrics_load_u64(&fdr.metrics->rotation_failures) ==
 	    failures_before + 1);
 
-	/* Restore permissions and wait past 1-second backoff timer */
-	assert(chmod(tempdir, 0700) == 0);
+	/* Remove the rename conflict and wait past the 1-second backoff timer */
+	assert(rmdir(backup) == 0);
 	usleep(1100000);
 
 	assert(fdr_write_all(writer, recovered, strlen(recovered)) == 0);
@@ -367,4 +365,3 @@ main(void)
 	puts("harvest tests passed");
 	return 0;
 }
-
