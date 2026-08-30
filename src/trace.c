@@ -1,5 +1,21 @@
 /*
- * trace.c - ftrace instance and probe management
+ * trace.c - Linux ftrace instance control, probe configuration, and kernel loss sampling
+ *
+ * Licensed under the Universal Permissive License (UPL), Version 1.0.
+ *
+ * Overview:
+ * This module manages the Linux kernel tracefs interface:
+ * 1. Instance Creation & Sizing: Allocates isolated tracefs subdirectories under
+ *    `/sys/kernel/tracing/instances/<name>` and writes per-CPU ring-buffer sizes
+ *    to `buffer_size_kb`.
+ * 2. Probe Configuration: Configures event filters before writing to `enable`
+ *    nodes to prevent unfiltered event bursts into the ring buffer.
+ * 3. Module Loading: Invokes `modprobe` via safe fork/exec with `PR_SET_PDEATHSIG`
+ *    without shell interpolation.
+ * 4. Forensic Loss Sampling: Periodically parses `/per_cpu/cpu[0-9]+/stats` across all
+ *    CPUs to detect ring-buffer overwrites (`overrun`), dropped events, and
+ *    nested interrupt losses (`commit overrun`). Immediately degrades readiness
+ *    (`fdr_ready 0`) upon detecting loss.
  */
 
 #include "fdr.h"
@@ -17,6 +33,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/**
+ * fdr_add_saturating - Performs saturating addition on 64-bit unsigned integers.
+ *
+ * Prevents integer wraparound if kernel loss counters reach astronomical values.
+ * If *total + value would overflow UINT64_MAX, clamps *total to UINT64_MAX.
+ *
+ * @total: Pointer to accumulator uint64_t.
+ * @value: Value to add.
+ */
 static void
 fdr_add_saturating(uint64_t *total, uint64_t value)
 {
@@ -26,6 +51,18 @@ fdr_add_saturating(uint64_t *total, uint64_t value)
 		*total += value;
 }
 
+/**
+ * fdr_trace_parse_counter - Parses an unsigned 64-bit integer following a label.
+ *
+ * Validates that `line` starts with `label`, skips whitespace, parses ASCII digits
+ * with overflow detection, and verifies there are no trailing garbage characters.
+ *
+ * @line: Pointer to line buffer.
+ * @length: Length of line buffer in bytes.
+ * @label: Expected label prefix (e.g., "overrun:", "dropped events:").
+ * @value: Pointer to uint64_t to store parsed integer.
+ * Return: 1 if matched and parsed, 0 if label does not match, -1 on syntax/overflow error.
+ */
 static int
 fdr_trace_parse_counter(const char *line, size_t length, const char *label,
     uint64_t *value)
@@ -36,28 +73,49 @@ fdr_trace_parse_counter(const char *line, size_t length, const char *label,
 
 	if (length < label_length || memcmp(line, label, label_length) != 0)
 		return 0;
+
 	cursor = label_length;
 	while (cursor < length && (line[cursor] == ' ' || line[cursor] == '\t'))
 		cursor++;
+
 	if (cursor == length || !isdigit((unsigned char)line[cursor]))
 		return -1;
+
 	while (cursor < length && isdigit((unsigned char)line[cursor])) {
 		unsigned int digit = (unsigned int)(line[cursor] - '0');
 
+		/* Overflow check before multiply by 10 */
 		if (parsed > (UINT64_MAX - digit) / 10)
 			return -1;
 		parsed = parsed * 10 + digit;
 		cursor++;
 	}
+
 	while (cursor < length && (line[cursor] == ' ' || line[cursor] == '\t' ||
 	    line[cursor] == '\r'))
 		cursor++;
+
 	if (cursor != length)
 		return -1;
+
 	*value = parsed;
 	return 1;
 }
 
+/**
+ * fdr_trace_parse_stats_line - Matches a line from per_cpu stats against known loss labels.
+ *
+ * Checks for "overrun:", "dropped events:", and "commit overrun:".
+ *
+ * @line: Line content buffer.
+ * @length: Byte length of line.
+ * @overruns: Pointer to store parsed overrun count.
+ * @dropped: Pointer to store parsed dropped event count.
+ * @commit_overruns: Pointer to store parsed commit overrun count.
+ * @found_overruns: Flag updated to 1 when overrun label is encountered.
+ * @found_dropped: Flag updated to 1 when dropped events label is encountered.
+ * @found_commit: Flag updated to 1 when commit overrun label is encountered.
+ */
 static void
 fdr_trace_parse_stats_line(const char *line, size_t length,
     uint64_t *overruns, uint64_t *dropped, uint64_t *commit_overruns,
@@ -83,6 +141,18 @@ fdr_trace_parse_stats_line(const char *line, size_t length,
 		*found_commit = 1;
 }
 
+/**
+ * fdr_trace_parse_stats - Streams and parses a kernel per_cpu/cpuN/stats file.
+ *
+ * Uses a fixed 4 KiB stack buffer and sliding window newline splitting to avoid
+ * dynamic allocations and handle arbitrary kernel buffer sizes.
+ *
+ * @path: Full path to /sys/kernel/tracing/instances/<name>/per_cpu/cpuN/stats.
+ * @overruns: Pointer to receive parsed overrun count.
+ * @dropped: Pointer to receive parsed dropped event count.
+ * @commit_overruns: Pointer to receive parsed commit overrun count.
+ * Return: 0 if all 3 loss counters were successfully found and parsed, -1 on error.
+ */
 static int
 fdr_trace_parse_stats(const char *path, uint64_t *overruns,
     uint64_t *dropped, uint64_t *commit_overruns)
@@ -99,6 +169,7 @@ fdr_trace_parse_stats(const char *path, uint64_t *overruns,
 	fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return -1;
+
 	for (;;) {
 		ssize_t n;
 		size_t start = 0;
@@ -110,6 +181,8 @@ fdr_trace_parse_stats(const char *path, uint64_t *overruns,
 			goto out;
 		}
 		used += (size_t)n;
+
+		/* Process complete lines split by '\n' */
 		while (start < used) {
 			char *newline = memchr(buffer + start, '\n', used - start);
 
@@ -123,10 +196,14 @@ fdr_trace_parse_stats(const char *path, uint64_t *overruns,
 			discarding = 0;
 			start = (size_t)(newline - buffer) + 1;
 		}
+
+		/* Shift remaining unparsed bytes to front of buffer */
 		if (start != 0) {
 			memmove(buffer, buffer + start, used - start);
 			used -= start;
 		}
+
+		/* EOF reached */
 		if (n == 0) {
 			if (used != 0 && !discarding)
 				fdr_trace_parse_stats_line(buffer, used, overruns,
@@ -134,6 +211,8 @@ fdr_trace_parse_stats(const char *path, uint64_t *overruns,
 				    &found_dropped, &found_commit);
 			break;
 		}
+
+		/* Discard oversized lines that exceed buffer */
 		if (used == sizeof(buffer)) {
 			used = 0;
 			discarding = 1;
@@ -146,6 +225,12 @@ out:
 	return rc;
 }
 
+/**
+ * fdr_cpu_dir_name - Identifies directory entries matching CPU folder format ("cpu[0-9]+").
+ *
+ * @name: Directory entry name (e.g. "cpu0", "cpu12", "buffer_size_kb").
+ * Return: 1 if format matches cpuN, 0 otherwise.
+ */
 static int
 fdr_cpu_dir_name(const char *name)
 {
@@ -160,6 +245,18 @@ fdr_cpu_dir_name(const char *name)
 	return 1;
 }
 
+/**
+ * fdr_trace_read_loss - Reads and sums loss metrics across all online CPUs for an instance.
+ *
+ * Opens the `per_cpu/` directory of the instance, scans each `cpuN/stats` file,
+ * and sums overruns, dropped events, and commit overruns using saturating addition.
+ *
+ * @insp: Target tracefs instance.
+ * @overruns: Pointer to store aggregated overrun count across all CPUs.
+ * @dropped: Pointer to store aggregated dropped events count.
+ * @commit_overruns: Pointer to store aggregated commit overruns count.
+ * Return: 0 on success (at least one CPU parsed), or -1 on failure.
+ */
 static int
 fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
     uint64_t *dropped, uint64_t *commit_overruns)
@@ -173,11 +270,14 @@ fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
 	*overruns = 0;
 	*dropped = 0;
 	*commit_overruns = 0;
+
 	if (fdr_join_path(per_cpu, sizeof(per_cpu), insp->dname, "per_cpu") != 0)
 		return -1;
+
 	dir = opendir(per_cpu);
 	if (dir == NULL)
 		return -1;
+
 	for (;;) {
 		char cpu_dir[FDR_PATH_MAX];
 		char stats[FDR_PATH_MAX];
@@ -199,11 +299,13 @@ fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
 		    fdr_trace_parse_stats(stats, &cpu_overruns, &cpu_dropped,
 		    &cpu_commit) != 0)
 			continue;
+
 		fdr_add_saturating(overruns, cpu_overruns);
 		fdr_add_saturating(dropped, cpu_dropped);
 		fdr_add_saturating(commit_overruns, cpu_commit);
 		cpus++;
 	}
+
 	if (read_error != 0) {
 		(void)closedir(dir);
 		return -1;
@@ -213,6 +315,15 @@ fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
 	return cpus > 0 ? 0 : -1;
 }
 
+/**
+ * fdr_trace_counter_delta - Computes the non-negative change in a loss counter.
+ *
+ * Updates `*previous` to `current` and returns the delta. Handles counter resets.
+ *
+ * @current: Newly sampled cumulative counter value from kernel.
+ * @previous: Pointer to previously recorded counter value.
+ * Return: Delta change since last sample.
+ */
 static uint64_t
 fdr_trace_counter_delta(uint64_t current, uint64_t *previous)
 {
@@ -222,6 +333,17 @@ fdr_trace_counter_delta(uint64_t current, uint64_t *previous)
 	return delta;
 }
 
+/**
+ * fdr_trace_sample_loss - Samples loss counters for an instance and updates metrics.
+ *
+ * If any new overruns, dropped events, or commit overruns are detected:
+ * - Atomically increments Prometheus counters in shared memory.
+ * - Degrades daemon readiness state (healthy = 0).
+ * - Emits a warning log message on the first observed loss.
+ *
+ * @insp: Target tracefs instance.
+ * Return: 1 if loss was detected, 0 if healthy/no new loss, -1 on read error.
+ */
 int
 fdr_trace_sample_loss(struct fdr_instance *insp)
 {
@@ -236,18 +358,25 @@ fdr_trace_sample_loss(struct fdr_instance *insp)
 	    fdr_trace_read_loss(insp, &overruns, &dropped,
 	    &commit_overruns) != 0)
 		return -1;
+
 	overrun_delta = fdr_trace_counter_delta(overruns,
 	    &insp->last_trace_overruns);
 	dropped_delta = fdr_trace_counter_delta(dropped,
 	    &insp->last_trace_dropped);
 	commit_delta = fdr_trace_counter_delta(commit_overruns,
 	    &insp->last_trace_commit_overruns);
+
 	fdr_metrics_add(&fdr.metrics->trace_overruns, overrun_delta);
 	fdr_metrics_add(&fdr.metrics->trace_dropped_events, dropped_delta);
 	fdr_metrics_add(&fdr.metrics->trace_commit_overruns, commit_delta);
+
+	/* If zero new loss was detected, remain in current readiness state */
 	if (overrun_delta == 0 && dropped_delta == 0 && commit_delta == 0)
 		return 0;
+
+	/* Mark recorder readiness as degraded (fdr_ready 0) */
 	fdr_metrics_store_int(&fdr.metrics->healthy, 0);
+
 	if (!insp->trace_loss_reported) {
 		fdr_warn("trace data loss detected for instance %s "
 		    "(overruns=%" PRIu64 ", dropped=%" PRIu64
@@ -258,6 +387,9 @@ fdr_trace_sample_loss(struct fdr_instance *insp)
 	return 1;
 }
 
+/**
+ * fdr_trace_sample_all_loss - Samples kernel loss across all active loaded instances.
+ */
 void
 fdr_trace_sample_all_loss(void)
 {
@@ -267,6 +399,15 @@ fdr_trace_sample_all_loss(void)
 		(void)fdr_trace_sample_loss(insp);
 }
 
+/**
+ * fdr_write_control - Writes a control string to a tracefs virtual file node.
+ *
+ * Opens with O_WRONLY | O_CLOEXEC, writes the string using fdr_write_all, and closes.
+ *
+ * @path: Full path to tracefs control node (e.g. ".../events/sched/sched_switch/enable").
+ * @value: String value to write (e.g. "1", "0", or filter expression).
+ * Return: 0 on success, or -1 on error.
+ */
 static int
 fdr_write_control(const char *path, const char *value)
 {
@@ -288,6 +429,16 @@ fdr_write_control(const char *path, const char *value)
 	return rc;
 }
 
+/**
+ * fdr_trace_create_instance - Creates the tracefs instance and configures per-CPU buffers.
+ *
+ * Cleans up any leftover directory from an ungraceful prior exit (rmdir), creates
+ * the instance directory (`mkdir ... 0700`), and writes `buffer_size_kb` if specified.
+ *
+ * @insp: Target instance structure.
+ * @item: Directing AST node.
+ * Return: 0 on success, or -1 on error.
+ */
 int
 fdr_trace_create_instance(struct fdr_instance *insp,
     const struct fdr_item *item)
@@ -296,6 +447,7 @@ fdr_trace_create_instance(struct fdr_instance *insp,
 	char value[32];
 
 	(void)item;
+	/* Remove stale instance if present from a previous crash */
 	if (rmdir(insp->dname) != 0 && errno != ENOENT) {
 		fdr_warn("cannot remove stale trace instance %s: %s",
 		    insp->dname, strerror(errno));
@@ -310,6 +462,7 @@ fdr_trace_create_instance(struct fdr_instance *insp,
 
 	if (insp->bufsize_kb == 0)
 		return 0;
+
 	if (fdr_join_path(path, sizeof(path), insp->dname, "buffer_size_kb") != 0) {
 		fdr_warn("trace buffer path is too long for %s", insp->iname);
 		return -1;
@@ -317,11 +470,22 @@ fdr_trace_create_instance(struct fdr_instance *insp,
 	(void)snprintf(value, sizeof(value), "%" PRIu64, insp->bufsize_kb);
 	if (fdr_write_control(path, value) != 0)
 		return -1;
+
 	fdr_log("info", "set instance %s buffer to %" PRIu64 " KiB per CPU",
 	    insp->iname, insp->bufsize_kb);
 	return 0;
 }
 
+/**
+ * fdr_trace_load_module - Executes modprobe to load a required kernel module.
+ *
+ * Forks a child process, sets PR_SET_PDEATHSIG to SIGTERM so the child terminates
+ * if the parent dies, and invokes `modprobe -- <target>` directly via execlp
+ * without shell interpolation.
+ *
+ * @item: Directive AST node containing module name in item->target.
+ * Return: 0 if modprobe succeeded (exit status 0), or -1 on failure.
+ */
 int
 fdr_trace_load_module(const struct fdr_item *item)
 {
@@ -336,6 +500,7 @@ fdr_trace_load_module(const struct fdr_item *item)
 	if (pid == 0) {
 		pid_t parent = getppid();
 
+		/* Ensure child dies if supervisor terminates prematurely */
 		if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || parent == 1 ||
 		    getppid() != parent)
 			_exit(FDR_EC_SYSTEM);
@@ -353,6 +518,7 @@ fdr_trace_load_module(const struct fdr_item *item)
 			return -1;
 		}
 	} while (1);
+
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
 		fdr_warn("modprobe %s failed", item->target);
 		return -1;
@@ -360,6 +526,18 @@ fdr_trace_load_module(const struct fdr_item *item)
 	return 0;
 }
 
+/**
+ * fdr_probe_path - Constructs the full path to a tracepoint control node.
+ *
+ * Formats: `<instance_dname>/events/<subsystem>/<event>/<control>`
+ *
+ * @path: Destination path buffer.
+ * @pathsz: Size of destination path buffer.
+ * @insp: Target instance.
+ * @target: Event specifier (e.g. "sched/sched_switch" or "sched/all").
+ * @control: Control filename ("enable" or "filter").
+ * Return: 0 on success, or -1 on path truncation.
+ */
 static int
 fdr_probe_path(char *path, size_t pathsz, const struct fdr_instance *insp,
     const char *target, const char *control)
@@ -370,6 +548,21 @@ fdr_probe_path(char *path, size_t pathsz, const struct fdr_instance *insp,
 	return n < 0 || (size_t)n >= pathsz ? -1 : 0;
 }
 
+/**
+ * fdr_trace_set_probe - Configures a tracepoint filter and enable/disable state.
+ *
+ * Sequencing invariant:
+ * - If an event filter is specified (item->optarg), the filter is written to
+ *   the event's `filter` node BEFORE the event is enabled. This prevents
+ *   unfiltered events from flooding the trace buffer during configuration.
+ * - Writes "1" (enable) or "0" (disable) to the event's `enable` node.
+ *
+ * Upon failure, increments `probe_failures` counter and sets readiness to 0.
+ *
+ * @insp: Target tracefs instance.
+ * @item: Directive AST node specifying target probe and optional filter.
+ * Return: 0 on success, or -1 on probe configuration failure.
+ */
 int
 fdr_trace_set_probe(struct fdr_instance *insp, const struct fdr_item *item)
 {
@@ -380,14 +573,16 @@ fdr_trace_set_probe(struct fdr_instance *insp, const struct fdr_item *item)
 
 	if (fdr_copy_field(target, sizeof(target), item->target) != 0)
 		return -1;
+
 	event = strchr(target, '/');
 	if (event == NULL)
 		return -1;
 	event++;
+	/* Handle subsystem-wide probes (e.g. "sched/all" -> "events/sched/enable") */
 	if (strcmp(event, "all") == 0)
 		event[-1] = '\0';
 
-	/* A filter must be valid before the event is enabled. */
+	/* Write filter before enabling probe to prevent unfiltered trace bursts */
 	if (item->type == FDR_ITEM_ENABLE && item->optarg[0] != '\0') {
 		if (fdr_probe_path(path, sizeof(path), insp, target, "filter") != 0 ||
 		    fdr_write_control(path, item->optarg) != 0)
@@ -398,6 +593,7 @@ fdr_trace_set_probe(struct fdr_instance *insp, const struct fdr_item *item)
 	if (fdr_probe_path(path, sizeof(path), insp, target, "enable") != 0 ||
 	    fdr_write_control(path, value) != 0)
 		goto failed;
+
 	if (fdr.verbose)
 		fdr_log("info", "%s probe %s",
 		    item->type == FDR_ITEM_ENABLE ? "enabled" : "disabled",
@@ -413,3 +609,4 @@ failed:
 	    item->fpath, item->line);
 	return -1;
 }
+
