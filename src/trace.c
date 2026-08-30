@@ -42,6 +42,24 @@
  * @total: Pointer to accumulator uint64_t.
  * @value: Value to add.
  */
+/**
+ * fdr_add_saturating - Performs saturating addition on 64-bit unsigned integers.
+ *
+ * Prevents integer wraparound if kernel loss counters reach astronomical values.
+ * If *total + value would overflow UINT64_MAX, clamps *total to UINT64_MAX.
+ *
+ * @total: Pointer to accumulator uint64_t.
+ * @value: Value to add.
+ */
+/**
+ * fdr_add_saturating - Performs saturating addition on 64-bit unsigned integers.
+ *
+ * Prevents integer wraparound if kernel loss counters reach astronomical values.
+ * If *total + value would overflow UINT64_MAX, clamps *total to UINT64_MAX.
+ *
+ * @total: Pointer to accumulator uint64_t.
+ * @value: Value to add.
+ */
 static void
 fdr_add_saturating(uint64_t *total, uint64_t value)
 {
@@ -51,6 +69,18 @@ fdr_add_saturating(uint64_t *total, uint64_t value)
 		*total += value;
 }
 
+/**
+ * fdr_trace_parse_counter - Parses an unsigned 64-bit integer following a label.
+ *
+ * Validates that `line` starts with `label`, skips whitespace, parses ASCII digits
+ * with overflow detection, and verifies there are no trailing garbage characters.
+ *
+ * @line: Pointer to line buffer.
+ * @length: Length of line buffer in bytes.
+ * @label: Expected label prefix (e.g., "overrun:", "dropped events:").
+ * @value: Pointer to uint64_t to store parsed integer.
+ * Return: 1 if matched and parsed, 0 if label does not match, -1 on syntax/overflow error.
+ */
 /**
  * fdr_trace_parse_counter - Parses an unsigned 64-bit integer following a label.
  *
@@ -116,6 +146,20 @@ fdr_trace_parse_counter(const char *line, size_t length, const char *label,
  * @found_dropped: Flag updated to 1 when dropped events label is encountered.
  * @found_commit: Flag updated to 1 when commit overrun label is encountered.
  */
+/**
+ * fdr_trace_parse_stats_line - Matches a line from per_cpu stats against known loss labels.
+ *
+ * Checks for "overrun:", "dropped events:", and "commit overrun:".
+ *
+ * @line: Line content buffer.
+ * @length: Byte length of line.
+ * @overruns: Pointer to store parsed overrun count.
+ * @dropped: Pointer to store parsed dropped event count.
+ * @commit_overruns: Pointer to store parsed commit overrun count.
+ * @found_overruns: Flag updated to 1 when overrun label is encountered.
+ * @found_dropped: Flag updated to 1 when dropped events label is encountered.
+ * @found_commit: Flag updated to 1 when commit overrun label is encountered.
+ */
 static void
 fdr_trace_parse_stats_line(const char *line, size_t length,
     uint64_t *overruns, uint64_t *dropped, uint64_t *commit_overruns,
@@ -141,6 +185,18 @@ fdr_trace_parse_stats_line(const char *line, size_t length,
 		*found_commit = 1;
 }
 
+/**
+ * fdr_trace_parse_stats - Streams and parses a kernel per_cpu/cpuN/stats file.
+ *
+ * Uses a fixed 4 KiB stack buffer and sliding window newline splitting to avoid
+ * dynamic allocations and handle arbitrary kernel buffer sizes.
+ *
+ * @path: Full path to /sys/kernel/tracing/instances/<name>/per_cpu/cpuN/stats.
+ * @overruns: Pointer to receive parsed overrun count.
+ * @dropped: Pointer to receive parsed dropped event count.
+ * @commit_overruns: Pointer to receive parsed commit overrun count.
+ * Return: 0 if all 3 loss counters were successfully found and parsed, -1 on error.
+ */
 /**
  * fdr_trace_parse_stats - Streams and parses a kernel per_cpu/cpuN/stats file.
  *
@@ -315,6 +371,15 @@ fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
 	return cpus > 0 ? 0 : -1;
 }
 
+/**
+ * fdr_trace_counter_delta - Computes the non-negative change in a loss counter.
+ *
+ * Updates `*previous` to `current` and returns the delta. Handles counter resets.
+ *
+ * @current: Newly sampled cumulative counter value from kernel.
+ * @previous: Pointer to previously recorded counter value.
+ * Return: Delta change since last sample.
+ */
 /**
  * fdr_trace_counter_delta - Computes the non-negative change in a loss counter.
  *
