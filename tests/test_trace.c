@@ -1,3 +1,19 @@
+/*
+ * test_trace.c - Unit test suite for mock tracefs probe configuration and kernel loss parsing
+ *
+ * Licensed under the Universal Permissive License (UPL), Version 1.0.
+ *
+ * Test Scope:
+ * 1. Tracepoint Probe Enablement (`fdr_trace_set_probe`):
+ *    - Verifies targeted event enablement without accidentally enabling the whole subsystem.
+ *    - Verifies filter sequencing invariant: filter must succeed before probe is enabled;
+ *      failure increments `probe_failures` metric and aborts enablement.
+ * 2. Per-CPU Loss Sampling (`fdr_trace_sample_loss`):
+ *    - Aggregates multi-core `cpu0/stats` and `cpu1/stats` (overrun, dropped events, commit overruns).
+ *    - Verifies Prometheus counter accumulation and automatic readiness degradation (`healthy = 0`).
+ *    - Tests non-negative counter delta handling during simulated kernel counter resets.
+ */
+
 #include "fdr.h"
 
 #include <assert.h>
@@ -8,12 +24,23 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/**
+ * make_dir - Creates a directory with mode 0700 and asserts success.
+ *
+ * @path: Directory path to create.
+ */
 static void
 make_dir(const char *path)
 {
 	assert(mkdir(path, 0700) == 0);
 }
 
+/**
+ * make_control - Creates a mock tracefs control file with initial string content.
+ *
+ * @path: Filesystem path to create.
+ * @value: String value to write.
+ */
 static void
 make_control(const char *path, const char *value)
 {
@@ -24,6 +51,12 @@ make_control(const char *path, const char *value)
 	assert(close(fd) == 0);
 }
 
+/**
+ * read_control - Reads the first character of a control file.
+ *
+ * @path: Filesystem path to read from.
+ * Return: First character read from file.
+ */
 static char
 read_control(const char *path)
 {
@@ -65,6 +98,8 @@ main(void)
 	    "enable") == 0);
 	assert(fdr_join_path(event_filter, sizeof(event_filter), event,
 	    "filter") == 0);
+
+	/* Construct mock tracefs hierarchy: events/sched/allocate/enable */
 	make_dir(events);
 	make_dir(subsystem);
 	make_dir(event);
@@ -78,18 +113,23 @@ main(void)
 	item.type = FDR_ITEM_ENABLE;
 	assert(fdr_copy_field(item.target, sizeof(item.target),
 	    "sched/allocate") == 0);
+
+	/* --- Test Suite 1: Targeted Probe Enablement --- */
 	assert(fdr_trace_set_probe(&instance, &item) == 0);
 	assert(read_control(event_enable) == '1');
 	assert(read_control(subsystem_enable) == '0');
 
+	/* --- Test Suite 2: Filter Invariant & Failure Handling --- */
 	make_control(event_enable, "0");
 	assert(fdr_copy_field(item.optarg, sizeof(item.optarg),
 	    "pid > 0") == 0);
 	fdr_metrics_init();
+	/* Fails because event_filter node does not exist in mock tracefs */
 	assert(fdr_trace_set_probe(&instance, &item) != 0);
 	assert(read_control(event_enable) == '0');
 	assert(fdr_metrics_load_u64(&fdr.metrics->probe_failures) == 1);
 
+	/* --- Test Suite 3: Per-CPU Loss Metric Parsing & Multi-Core Summing --- */
 	assert(fdr_join_path(per_cpu, sizeof(per_cpu), tempdir, "per_cpu") == 0);
 	assert(fdr_join_path(cpu0, sizeof(cpu0), per_cpu, "cpu0") == 0);
 	assert(fdr_join_path(cpu1, sizeof(cpu1), per_cpu, "cpu1") == 0);
@@ -106,16 +146,19 @@ main(void)
 	make_control(stats1,
 	    "entries: 0\noverrun: 5\ncommit overrun: 0\n"
 	    "bytes: 0\ndropped events: 7\nread events: 0\n");
+
 	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
 	assert(fdr_trace_sample_loss(&instance) == 1);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_overruns) == 7);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_dropped_events) == 10);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_commit_overruns) == 1);
 	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
+
+	/* Re-sampling with unchanged counters should return 0 (no new loss) */
 	assert(fdr_trace_sample_loss(&instance) == 0);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_overruns) == 7);
 
-	/* A lower current value indicates that the kernel counter was reset. */
+	/* --- Test Suite 4: Kernel Counter Reset Delta Handling --- */
 	make_control(stats0,
 	    "overrun: 1\ncommit overrun: 0\ndropped events: 2\n");
 	make_control(stats1,
@@ -131,6 +174,7 @@ main(void)
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_commit_overruns) == 4);
 	fdr_metrics_destroy();
 
+	/* Cleanup mock directory hierarchy */
 	assert(unlink(stats1) == 0);
 	assert(unlink(stats0) == 0);
 	assert(rmdir(cpu1) == 0);
@@ -147,3 +191,4 @@ main(void)
 	puts("trace tests passed");
 	return 0;
 }
+

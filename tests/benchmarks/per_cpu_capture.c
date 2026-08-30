@@ -1,3 +1,17 @@
+/*
+ * per_cpu_capture.c - High-performance per-CPU trace stream benchmark tool
+ *
+ * Licensed under the Universal Permissive License (UPL), Version 1.0.
+ *
+ * Benchmark Scope:
+ * Measures throughput and CPU overhead when draining kernel tracefs streams
+ * across all CPUs concurrently using dedicated worker threads:
+ * - Text mode: Drains `/sys/kernel/tracing/instances/<inst>/per_cpu/cpuN/trace_pipe`
+ *   via standard read(2)/write(2) streaming buffers.
+ * - Raw binary mode: Uses zero-copy kernel splice(2) on `trace_pipe_raw` via an intermediate
+ *   pipe without user-space memory copies.
+ */
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,16 +28,40 @@
 #include <time.h>
 #include <unistd.h>
 
+/** Maximum filesystem path length for tracefs nodes. */
 #define PATH_LIMIT 4096
+
+/** Buffer size for text capture mode (8 KiB). */
 #define TEXT_READ_SIZE 8192U
+
+/** Transfer chunk size for zero-copy splice() raw capture mode (1 MiB). */
 #define RAW_SPLICE_SIZE (1024U * 1024U)
+
+/** Maximum number of CPU channels supported. */
 #define MAX_CPUS 4096U
 
+/**
+ * enum capture_mode - Operational mode for capturing kernel trace streams.
+ * @CAPTURE_TEXT: Formatted ASCII trace text via read(2).
+ * @CAPTURE_RAW: Binary ring-buffer pages via zero-copy splice(2).
+ */
 enum capture_mode {
 	CAPTURE_TEXT,
 	CAPTURE_RAW,
 };
 
+/**
+ * struct cpu_capture - Thread context and telemetry for a single CPU capture worker.
+ * @thread: POSIX thread handle.
+ * @mode: Active capture mode (TEXT or RAW).
+ * @cpu: CPU core ID.
+ * @input_fd: Open descriptor to kernel trace_pipe or trace_pipe_raw.
+ * @output_fd: Open descriptor to destination capture file.
+ * @raw_pipe: Intermediate pipe descriptor pair used for zero-copy splice().
+ * @bytes: Cumulative bytes transferred by this worker.
+ * @operations: Total number of read/splice I/O operations performed.
+ * @error_number: Stored errno if an I/O error occurred.
+ */
 struct cpu_capture {
 	pthread_t thread;
 	enum capture_mode mode;
@@ -36,8 +74,14 @@ struct cpu_capture {
 	int error_number;
 };
 
+/** Async-signal-safe flag requesting worker threads to terminate. */
 static volatile sig_atomic_t stop_requested;
 
+/**
+ * stop_handler - Signal handler for SIGTERM/SIGINT.
+ *
+ * @signo: Signal number.
+ */
 static void
 stop_handler(int signo)
 {
@@ -45,6 +89,12 @@ stop_handler(int signo)
 	stop_requested = 1;
 }
 
+/**
+ * cpu_number - Parses integer CPU index from directory entry ("cpuN").
+ *
+ * @name: Directory entry name string.
+ * Return: Parsed CPU index >= 0, or -1 on invalid format or out-of-range value.
+ */
 static int
 cpu_number(const char *name)
 {
@@ -63,6 +113,13 @@ cpu_number(const char *name)
 	return (int)value;
 }
 
+/**
+ * compare_capture - qsort comparison callback to sort cpu_capture structs by CPU index.
+ *
+ * @left: Pointer to first struct cpu_capture.
+ * @right: Pointer to second struct cpu_capture.
+ * Return: -1, 0, or 1.
+ */
 static int
 compare_capture(const void *left, const void *right)
 {
@@ -72,6 +129,14 @@ compare_capture(const void *left, const void *right)
 	return (a->cpu > b->cpu) - (a->cpu < b->cpu);
 }
 
+/**
+ * write_all - Loop helper writing complete buffer to descriptor handling EINTR.
+ *
+ * @fd: Target file descriptor.
+ * @buffer: Data buffer.
+ * @length: Length in bytes.
+ * Return: 0 on complete write, or -1 on failure.
+ */
 static int
 write_all(int fd, const char *buffer, size_t length)
 {
@@ -89,6 +154,12 @@ write_all(int fd, const char *buffer, size_t length)
 	return 0;
 }
 
+/**
+ * capture_cpu - Dedicated thread worker loop capturing trace events from one CPU.
+ *
+ * @opaque: Pointer to struct cpu_capture.
+ * Return: Always returns NULL.
+ */
 static void *
 capture_cpu(void *opaque)
 {
@@ -103,10 +174,12 @@ capture_cpu(void *opaque)
 		ssize_t n;
 
 		if (capture->mode == CAPTURE_RAW) {
+			/* Zero-copy kernel splice into intermediate pipe */
 			n = splice(capture->input_fd, NULL, capture->raw_pipe[1], NULL,
 			    RAW_SPLICE_SIZE, SPLICE_F_MOVE | SPLICE_F_MORE |
 			    SPLICE_F_NONBLOCK);
 		} else {
+			/* Standard read() from text trace_pipe */
 			n = read(capture->input_fd, buffer, sizeof(buffer));
 			if (n > 0 && write_all(capture->output_fd, buffer,
 			    (size_t)n) != 0) {
@@ -114,6 +187,8 @@ capture_cpu(void *opaque)
 				break;
 			}
 		}
+
+		/* If raw mode: splice from intermediate pipe to destination file */
 		if (capture->mode == CAPTURE_RAW && n > 0) {
 			ssize_t remaining = n;
 
@@ -133,6 +208,7 @@ capture_cpu(void *opaque)
 			if (capture->error_number != 0)
 				break;
 		}
+
 		if (n < 0) {
 			if (errno == EINTR)
 				continue;
@@ -154,6 +230,7 @@ capture_cpu(void *opaque)
 		capture->bytes += (uint64_t)n;
 		capture->operations++;
 	}
+
 	if (close(capture->input_fd) != 0 && capture->error_number == 0)
 		capture->error_number = errno;
 	if (close(capture->output_fd) != 0 && capture->error_number == 0)
@@ -165,6 +242,15 @@ capture_cpu(void *opaque)
 	return NULL;
 }
 
+/**
+ * open_capture - Opens input trace node and destination output file for a CPU core.
+ *
+ * @capture: Target struct cpu_capture.
+ * @instance: Path to tracefs instance root.
+ * @output_dir: Destination capture directory.
+ * @mode: Text or raw mode.
+ * Return: 0 on success, or -1 on open/pipe error.
+ */
 static int
 open_capture(struct cpu_capture *capture, const char *instance,
     const char *output_dir, enum capture_mode mode)
@@ -212,6 +298,14 @@ open_capture(struct cpu_capture *capture, const char *instance,
 	return 0;
 }
 
+/**
+ * discover_cpus - Scans instance `per_cpu/` directory and discovers all available online CPU nodes.
+ *
+ * @instance: Trace instance root directory path.
+ * @captures_out: Pointer to receive dynamically allocated array of struct cpu_capture.
+ * @count_out: Pointer to receive discovered CPU count.
+ * Return: 0 on success, or -1 on failure.
+ */
 static int
 discover_cpus(const char *instance, struct cpu_capture **captures_out,
     size_t *count_out)
@@ -354,3 +448,4 @@ close_opened:
 	free(captures);
 	return 3;
 }
+

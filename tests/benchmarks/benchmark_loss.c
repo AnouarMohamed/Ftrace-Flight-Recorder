@@ -1,3 +1,15 @@
+/*
+ * benchmark_loss.c - Synthetic multi-core ftrace loss sampling overhead micro-benchmark
+ *
+ * Licensed under the Universal Permissive License (UPL), Version 1.0.
+ *
+ * Benchmark Scope:
+ * Measures the CPU time required by `fdr_trace_sample_loss()` to parse and aggregate
+ * per-CPU ring-buffer loss statistics across high core counts (e.g. 256 virtual CPU directories).
+ * Calculates average nanoseconds consumed per CPU stats sample to verify that 5-second
+ * loss sampling in the supervisor imposes near-zero CPU footprint.
+ */
+
 #include "fdr.h"
 
 #include <assert.h>
@@ -11,9 +23,19 @@
 #include <time.h>
 #include <unistd.h>
 
+/** Default synthetic CPU core count for scaling tests (256 CPUs). */
 #define BENCH_CPUS_DEFAULT 256U
+
+/** Default iteration round count (50 rounds). */
 #define BENCH_ROUNDS_DEFAULT 50U
 
+/**
+ * elapsed_ns - Calculates elapsed nanoseconds between two timespec timestamps.
+ *
+ * @start: Starting timestamp.
+ * @finish: Completion timestamp.
+ * Return: Elapsed time in nanoseconds.
+ */
 static uint64_t
 elapsed_ns(const struct timespec *start, const struct timespec *finish)
 {
@@ -27,6 +49,13 @@ elapsed_ns(const struct timespec *start, const struct timespec *finish)
 	return seconds * UINT64_C(1000000000) + (uint64_t)nanoseconds;
 }
 
+/**
+ * read_positive_env - Parses a positive unsigned integer from an environment variable.
+ *
+ * @name: Environment variable name.
+ * @default_value: Fallback value if unset or empty.
+ * Return: Parsed integer value, or 0 if out of range (> 4096).
+ */
 static unsigned int
 read_positive_env(const char *name, unsigned int default_value)
 {
@@ -36,14 +65,21 @@ read_positive_env(const char *name, unsigned int default_value)
 
 	if (value == NULL || *value == '\0')
 		return default_value;
+
 	errno = 0;
 	parsed = strtoul(value, &end, 10);
 	if (errno != 0 || end == value || *end != '\0' || parsed == 0 ||
 	    parsed > 4096)
 		return 0;
+
 	return (unsigned int)parsed;
 }
 
+/**
+ * create_stats_file - Populates a mock per-CPU stats file with initial zeroed counters.
+ *
+ * @path: Full path to `cpuN/stats` file.
+ */
 static void
 create_stats_file(const char *path)
 {
@@ -61,6 +97,12 @@ create_stats_file(const char *path)
 	assert(close(fd) == 0);
 }
 
+/**
+ * create_cpu_tree - Constructs a synthetic mock tracefs `per_cpu/cpuN/stats` directory tree.
+ *
+ * @per_cpu: Base `per_cpu` directory path.
+ * @cpus: Number of CPU subdirectories to instantiate.
+ */
 static void
 create_cpu_tree(const char *per_cpu, unsigned int cpus)
 {
@@ -81,6 +123,12 @@ create_cpu_tree(const char *per_cpu, unsigned int cpus)
 	}
 }
 
+/**
+ * remove_cpu_tree - Tears down the synthetic `per_cpu/cpuN/stats` directory tree.
+ *
+ * @per_cpu: Base `per_cpu` directory path.
+ * @cpus: Number of CPU subdirectories to delete.
+ */
 static void
 remove_cpu_tree(const char *per_cpu, unsigned int cpus)
 {
@@ -129,14 +177,18 @@ main(void)
 	    "fdr-loss-benchmark") == 0);
 	assert(fdr_copy_field(instance.dname, sizeof(instance.dname), tempdir) == 0);
 	fdr_metrics_init();
+
+	/* Profile process CPU execution time across rounds */
 	assert(clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start) == 0);
 	for (round = 0; round < rounds; round++)
 		assert(fdr_trace_sample_loss(&instance) == 0);
 	assert(clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &finish) == 0);
+
 	cpu_ns = elapsed_ns(&start, &finish);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_overruns) == 0);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_dropped_events) == 0);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_commit_overruns) == 0);
+
 	printf("cpus=%u rounds=%u cpu_ns=%" PRIu64
 	    " ns_per_cpu_sample=%.2f\n", cpus, rounds, cpu_ns,
 	    (double)cpu_ns / ((double)cpus * (double)rounds));
@@ -146,3 +198,4 @@ main(void)
 	assert(rmdir(tempdir) == 0);
 	return 0;
 }
+
