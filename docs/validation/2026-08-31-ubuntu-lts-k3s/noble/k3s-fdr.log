@@ -1,0 +1,6 @@
+2026-08-31T17:35:27Z [info] loaded instance fdr-k3s from /etc/fdr.d/k3s.conf
+2026-08-31T17:35:27Z [info] started worker 7 for instance fdr-k3s
+2026-08-31T17:35:27Z [info] HTTP endpoints listening on 0.0.0.0:9119 (/healthz /readyz /metrics)
+2026-08-31T17:35:27Z [info] created trace instance fdr-k3s
+2026-08-31T17:35:27Z [info] set instance fdr-k3s buffer to 4096 KiB per CPU
+2026-08-31T17:35:27Z [info] saving instance fdr-k3s to /var/log/fdr/k3s.log

@@ -185,10 +185,13 @@ Recorded evidence currently includes:
 
 - a complete Kind lifecycle run on Linux 7.1.8 with Prometheus and Grafana;
 - disposable KVM systemd and controlled-loss passes on Linux 7.0.12 and 7.1.8;
+- Ubuntu Jammy and Noble KVM qualification, including a Noble single-node k3s
+  deployment;
 - fake-tracefs unit and runtime tests in ordinary CI.
 
-Ubuntu LTS and single-node k3s release-qualification runs remain open. The
-evidence index distinguishes completed checks from remaining work.
+The release kernel matrix is complete. Representative performance curves,
+security-policy qualification, and genuinely multi-node validation remain
+open; the evidence index distinguishes those limits from completed checks.
 
 ## License
 

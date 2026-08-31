@@ -70,8 +70,9 @@ All notable changes to this project are documented here. The format follows
   degraded Grafana captures and Prometheus target discovery.
 - Pass systemd lifecycle, zero-loss normal load, and controlled-loss detection
   in disposable KVM guests on Linux 7.0.12 and 7.1.8.
-- Keep Ubuntu LTS and Noble k3s qualification visible as open release work
-  rather than treating the local-kernel results as universal coverage.
+- Pass clean-build, systemd lifecycle, zero-loss nominal, and controlled-loss
+  qualification on Ubuntu Jammy and Noble, plus the Noble single-node k3s
+  DaemonSet capture and cleanup workflow.
 - Record a five-round 64 MiB regular-file collector-copy microbenchmark with
   exact output, explicitly excluding it from real-ftrace performance claims.
 - Record a synthetic 256-CPU integrity-sampling benchmark: median process CPU

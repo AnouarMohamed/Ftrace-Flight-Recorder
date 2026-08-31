@@ -10,7 +10,11 @@ run_id=${FDR_VM_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}
 run_dir="$lab_root/runs/$run_id"
 ssh_key="$cache_dir/id_ed25519"
 k3s_version=${FDR_VM_K3S_VERSION:-v1.35.5+k3s1}
-profiles=("${@:-jammy noble}")
+if [ "$#" -eq 0 ]; then
+	profiles=(jammy noble)
+else
+	profiles=("$@")
+fi
 
 require_command()
 {
@@ -125,7 +129,9 @@ run_profile()
 	rm -f "$overlay" "$seed" "$pid_file" "$source_tar" "$uefi_vars"
 	qemu-img create -q -f qcow2 -F qcow2 -b "$base_image" "$overlay" 16G
 	cp /usr/share/edk2/ovmf/OVMF_VARS.fd "$uefi_vars"
-	tar --exclude=.git --exclude=.build -C "$repo_root" -cf "$source_tar" .
+	tar --exclude=.git --exclude=.build --exclude=.vm-lab \
+	    --exclude=fdrd --exclude='*.o' \
+	    -C "$repo_root" -cf "$source_tar" .
 
 	cat >"$runtime_dir/user-data" <<EOF
 #cloud-config
@@ -160,7 +166,6 @@ EOF
 	    -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$ssh_port-:22" \
 	    -daemonize -pidfile "$pid_file"
 	qemu_pid=$(cat "$pid_file")
-	trap stop_vm RETURN
 
 	ready=0
 	for _ in {1..180}; do
@@ -210,20 +215,12 @@ EOF
 	done
 	stop_vm
 	qemu_pid=
-	trap - RETURN
 	rm -f "$overlay" "$seed" "$pid_file" "$source_tar" "$uefi_vars" \
 	    "$runtime_dir/fdr-image.tar" "$runtime_dir/user-data" \
 	    "$runtime_dir/meta-data"
 }
 
-status=PASSED
-for profile in ${profiles[*]}; do
-	if ! run_profile "$profile"; then
-		status=FAILED
-		break
-	fi
-done
-
+write_report()
 {
 	printf '# FDR disposable-VM matrix\n\n'
 	printf -- '- Status: **%s**\n' "$status"
@@ -231,7 +228,7 @@ done
 	printf -- '- Source commit: `%s`\n\n' "$(git -C "$repo_root" rev-parse HEAD)"
 	printf '| Profile | Kernel | systemd smoke | Controlled loss | k3s |\n'
 	printf '|---|---|---|---|---|\n'
-	for profile in ${profiles[*]}; do
+	for profile in "${profiles[@]}"; do
 		summary="$run_dir/$profile/summary.env"
 		if [ -s "$summary" ]; then
 			# shellcheck disable=SC1090
@@ -242,7 +239,21 @@ done
 			printf '| %s | unavailable | FAILED | unavailable | unavailable |\n' "$profile"
 		fi
 	 done
-} >"$run_dir/report.md"
+}
 
-printf 'VM matrix %s: %s\n' "$status" "$run_dir/report.md"
-[ "$status" = PASSED ]
+finish_matrix()
+{
+	rc=$?
+	trap - EXIT
+	stop_vm
+	write_report >"$run_dir/report.md"
+	printf 'VM matrix %s: %s\n' "$status" "$run_dir/report.md"
+	exit "$rc"
+}
+
+status=FAILED
+trap finish_matrix EXIT
+for profile in "${profiles[@]}"; do
+	run_profile "$profile"
+done
+status=PASSED

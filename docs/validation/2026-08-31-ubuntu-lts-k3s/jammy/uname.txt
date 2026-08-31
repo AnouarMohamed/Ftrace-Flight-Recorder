@@ -1,0 +1,1 @@
+Linux fdr-jammy 5.15.0-1106-kvm #111-Ubuntu SMP Tue Aug 11 15:19:54 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux

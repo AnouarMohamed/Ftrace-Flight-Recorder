@@ -66,7 +66,7 @@ Implementation status in the current development tree:
       real host kernel and retain the run evidence.
 - [x] Validate systemd and controlled-loss behavior in disposable VMs on the
       installed Linux 7.0.12 and 7.1.8 kernels.
-- [ ] Complete the Ubuntu LTS and Noble single-node k3s release matrix.
+- [x] Complete the Ubuntu LTS and Noble single-node k3s release matrix.
 - [x] Expose trace overrun, dropped-event, and commit-overrun counters and make
       readiness reflect observed loss.
 - [x] Validate trace-loss behavior under controlled load.
@@ -237,9 +237,11 @@ A disposable KVM regression on Fedora kernels 7.0.12 and 7.1.8, including
 systemd lifecycle checks, zero-loss normal capture, and deliberately induced
 trace overruns with degraded readiness, is stored in
 [`docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/`](docs/validation/2026-08-29-vm-kernels-7.0.12-7.1.8/report.md).
-It proves the two-kernel and controlled-loss mechanics. The Ubuntu LTS profiles
-and their single-node k3s run remain release-qualification work, so the broader
-release matrix item above stays open.
+It proves the two-kernel and controlled-loss mechanics. The Ubuntu Jammy and
+Noble profiles, including the Noble single-node k3s deployment, are recorded in
+[`docs/validation/2026-08-31-ubuntu-lts-k3s/`](docs/validation/2026-08-31-ubuntu-lts-k3s/report.md).
+Together these runs close the current release-qualification matrix while
+keeping broader performance, security-policy, and multi-node claims open.
 
 ### CI strategy
 

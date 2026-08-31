@@ -1,0 +1,2 @@
+TARGET              SOURCE  FSTYPE  OPTIONS
+/sys/kernel/tracing tracefs tracefs rw,nosuid,nodev,noexec,relatime

@@ -1,0 +1,4 @@
+cgroup=cgroup2
+rootfs=ext4
+cpus=4
+systemd 255 (255.4-1ubuntu8.17)
