@@ -55,6 +55,8 @@ All notable changes to this project are documented here. The format follows
 - Remove a redundant destination metadata lookup from fallback rotation.
 - Parse per-CPU trace-loss statistics with bounded direct reads and checked
   integer conversion instead of formatted stdio scanning.
+- Cache per-CPU tracefs stats paths between integrity samples, with bounded and
+  hotplug-aware refresh instead of recurring directory traversal.
 
 ### Documentation
 
@@ -78,6 +80,8 @@ All notable changes to this project are documented here. The format follows
 - Record a synthetic 256-CPU integrity-sampling benchmark: median process CPU
   fell from 4.78 ms to 3.20 ms (32.9%) per complete topology sample, with
   real-tracefs high-core qualification still open.
+- Record a 15-pair synthetic 256-CPU topology-cache comparison: median process
+  CPU fell another 4.3%, while real-kernel high-core qualification remains open.
 - Record a 15-run Linux 7.1.8 real-tracefs scheduler workload comparison. The
   selected 8 KiB text read used 14.9% less normalized collector CPU than the
   pre-optimization baseline with zero kernel loss and zero recorder drops;

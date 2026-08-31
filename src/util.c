@@ -207,6 +207,25 @@ fdr_write_all(int fd, const void *buf, size_t len)
 }
 
 /**
+ * fdr_trace_reset_loss_cache - Releases cached per-CPU stats paths.
+ *
+ * @insp: Target tracefs instance.
+ */
+void
+fdr_trace_reset_loss_cache(struct fdr_instance *insp)
+{
+	size_t index;
+
+	for (index = 0; index < insp->trace_stats_path_count; index++)
+		free(insp->trace_stats_paths[index]);
+	free(insp->trace_stats_paths);
+	insp->trace_stats_paths = NULL;
+	insp->trace_stats_path_count = 0;
+	insp->trace_stats_samples = 0;
+	insp->trace_stats_online_cpus = 0;
+}
+
+/**
  * fdr_instance_init - Sets default values on a new tracefs instance struct.
  *
  * Initializes memory and sets default minfree threshold (5%) and unlimited
@@ -240,4 +259,3 @@ fdr_instance_append(struct fdr_instance *insp)
 	*tail = insp;
 	fdr.instance_count++;
 }
-
