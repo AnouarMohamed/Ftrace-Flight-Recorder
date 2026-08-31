@@ -42,6 +42,20 @@ wait_ready()
 	return 1
 }
 
+save_healthy_metrics()
+{
+	destination=$1
+	curl --fail --silent http://127.0.0.1:9119/metrics >"$destination"
+	grep -q '^fdr_ready 1$' "$destination"
+	grep -q '^fdr_bytes_dropped_total 0$' "$destination"
+	grep -q '^fdr_rotation_failures_total 0$' "$destination"
+	grep -q '^fdr_probe_failures_total 0$' "$destination"
+	grep -q '^fdr_write_errors_total 0$' "$destination"
+	grep -q '^fdr_trace_overruns_total 0$' "$destination"
+	grep -q '^fdr_trace_dropped_events_total 0$' "$destination"
+	grep -q '^fdr_trace_commit_overruns_total 0$' "$destination"
+}
+
 install_config()
 {
 	buffer=$1
@@ -94,7 +108,7 @@ cat /etc/os-release >"$result_dir/os-release.txt"
 } >"$result_dir/environment.txt"
 
 printf 'Running systemd smoke test\n'
-install_config 4m 4m sched/sched_wakeup
+install_config 32m 4m sched/sched_wakeup
 systemctl daemon-reload
 systemctl enable --now fdr
 wait_ready
@@ -107,6 +121,7 @@ for _ in {1..30}; do
 	sleep 1
 done
 grep -q 'sched_wakeup' /var/log/fdr/vm.log
+save_healthy_metrics "$result_dir/normal-metrics.txt"
 
 reload_before=$(metric fdr_reloads_total)
 printf '# valid reload %s\n' "$(date -u +%s)" >>"$config"
@@ -128,6 +143,7 @@ journalctl -u fdr --since '-1 minute' --no-pager | grep -q 'reload rejected'
 install -m 0644 /var/tmp/fdr-valid.conf "$config"
 systemctl reload fdr
 wait_ready
+save_healthy_metrics "$result_dir/reload-metrics.txt"
 
 parent_before=$(systemctl show fdr -p MainPID --value)
 restart_before=$(systemctl show fdr -p NRestarts --value)
@@ -157,11 +173,7 @@ for capture in /var/log/fdr/vm.log /var/log/fdr/vm.log.1; do
 	[ "$(stat -c %a "$capture")" = 600 ]
 done
 
-curl --fail --silent http://127.0.0.1:9119/metrics >"$result_dir/systemd-metrics.txt"
-grep -q '^fdr_ready 1$' "$result_dir/systemd-metrics.txt"
-grep -q '^fdr_trace_overruns_total 0$' "$result_dir/systemd-metrics.txt"
-grep -q '^fdr_trace_dropped_events_total 0$' "$result_dir/systemd-metrics.txt"
-grep -q '^fdr_trace_commit_overruns_total 0$' "$result_dir/systemd-metrics.txt"
+save_healthy_metrics "$result_dir/systemd-metrics.txt"
 stat -c '%F %a %s %n' /var/log/fdr/vm.log /var/log/fdr/vm.log.1 \
     >"$result_dir/captures.txt"
 journalctl -u fdr --no-pager >"$result_dir/fdr-journal.txt"

@@ -1,0 +1,5 @@
+NAME               READY   STATUS    RESTARTS   AGE   IP          NODE        NOMINATED NODE   READINESS GATES
+pod/fdr-vm-4wv9c   1/1     Running   0          30s   10.42.0.3   fdr-noble   <none>           <none>
+
+NAME                    DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE   CONTAINERS   IMAGES       SELECTOR
+daemonset.apps/fdr-vm   1         1         1       1            1           kubernetes.io/os=linux   32s   fdrd         fdr-vm:dev   app.kubernetes.io/instance=fdr-vm,app.kubernetes.io/name=fdr

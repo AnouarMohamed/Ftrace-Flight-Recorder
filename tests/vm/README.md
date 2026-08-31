@@ -77,6 +77,11 @@ under `.vm-lab/runs/<UTC timestamp>`. Base cloud images and the ephemeral SSH
 key are cached under `.vm-lab/cache`; guest overlays are deleted only
 after a successful evidence transfer and retained on failure.
 
+The source transfer excludes host build products and `.vm-lab` state, so every
+guest performs a clean native build. Nominal integrity is checked before and
+after reload and worker-recovery boundaries; any failed guest command stops the
+matrix and writes a failed report instead of continuing to another profile.
+
 The controlled-loss scenario deliberately applies a 1% CPU quota to FDR and
 enables scheduler events with a 64 KiB per-CPU trace buffer. It must observe a
 kernel overrun and degraded readiness. This test is safe only because it runs

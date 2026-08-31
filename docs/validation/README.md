@@ -20,6 +20,7 @@ VM before making kernel-compatibility or performance claims.
 
 | Date | Environment | Revision | Result and scope |
 |---|---|---|---|
+| 2026-08-31 | Ubuntu Jammy and Noble disposable KVM guests; single-node k3s on Noble | Application base `c9abad2` plus the report's harness-hardening changes | [Release-matrix report](2026-08-31-ubuntu-lts-k3s/report.md): clean builds, systemd lifecycle, zero-loss nominal checkpoints, controlled-loss degradation, and Noble k3s capture and cleanup passed |
 | 2026-08-29 | Kind, Linux 7.1.8 | Base `9eecc9f` plus the report's smoke-workflow changes | [Full lifecycle report](2026-08-29-kind-kernel-7.1.8/report.md): real scheduler capture, Prometheus target, healthy/degraded Grafana states, configuration rollout, collector restart, rotation, and cleanup passed |
 | 2026-08-29 | Disposable KVM, Linux 7.0.12 and 7.1.8 | `97f77d7` | [Matrix report](2026-08-29-vm-kernels-7.0.12-7.1.8/matrix-report.md): systemd lifecycle, zero-loss normal load, and controlled trace-loss degradation passed on both kernels |
 | 2026-08-29 | Live Kind observation, Linux 7.1.8 | `ec40e3e` | [Focused evidence](2026-08-29-live-kind-kernel-7.1.8/report.md): 15-minute Grafana integrity view, Prometheus target health, active collection, and zero reported loss |
@@ -39,12 +40,11 @@ captures are intentionally not committed.
 - bounded rotation preserved non-empty mode-0600 capture files;
 - Prometheus discovered FDR and Grafana displayed the same integrity signals;
 - graceful teardown removed the owned tracefs instance.
+- the Helm DaemonSet became ready, captured a real scheduler event, and removed
+  its tracefs instance on a single-node Noble k3s cluster.
 
 ## What remains open
 
-- release-qualification runs on the selected oldest and current Ubuntu LTS
-  kernels;
-- the Noble single-node k3s profile;
 - representative performance curves by event set, CPU count, and event rate;
 - production-style disk-pressure, SELinux, and AppArmor qualification;
 - multi-node behavior with genuinely separate node kernels;

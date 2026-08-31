@@ -17,6 +17,7 @@ shortest path to a working capture.
 | Run the local Prometheus and Grafana lab | [Kind lab](../deploy/kind/README.md) |
 | Test real kernels in disposable VMs | [VM validation](../tests/vm/README.md) |
 | Review what has been proven | [Validation evidence](validation/README.md) |
+| Review the Ubuntu LTS and Noble k3s qualification | [Ubuntu release matrix](validation/2026-08-31-ubuntu-lts-k3s/report.md) |
 | Review the performance work and compatibility gates | [Performance optimization plan](performance-optimization-plan.md) |
 | Review the userspace copy-loop evidence | [Collector-copy microbenchmark](benchmarks/2026-08-29-text-collector.md) |
 | Review the real tracefs text-reader results | [Real-tracefs collector profile](benchmarks/2026-08-30-real-tracefs-text.md) |

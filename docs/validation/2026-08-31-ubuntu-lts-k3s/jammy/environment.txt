@@ -1,0 +1,4 @@
+cgroup=cgroup2
+rootfs=ext4
+cpus=4
+systemd 249 (249.11-0ubuntu3.22)
