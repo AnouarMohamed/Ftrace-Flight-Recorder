@@ -191,6 +191,34 @@ fdr_valid_probe(const char *target)
 }
 
 /**
+ * fdr_valid_saveto_path - Rejects directory traversal components in a destination path.
+ *
+ * The path must already be absolute.  Checking complete components avoids rejecting
+ * legitimate names such as `foo..bar` while rejecting `..` regardless of its position.
+ *
+ * @path: Destination path to validate.
+ * Return: 1 if valid, 0 if it contains a parent-directory component.
+ */
+static int
+fdr_valid_saveto_path(const char *path)
+{
+	const char *p = path;
+
+	while (*p != '\0') {
+		const char *start;
+
+		while (*p == '/')
+			p++;
+		start = p;
+		while (*p != '\0' && *p != '/')
+			p++;
+		if (p - start == 2 && strncmp(start, "..", 2) == 0)
+			return 0;
+	}
+	return 1;
+}
+
+/**
  * fdr_parse_error - Formats and logs a configuration syntax error message.
  *
  * @fpath: Path to configuration file containing the error.
@@ -321,6 +349,11 @@ fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
 			free(item);
 			return fdr_parse_error(fpath, line,
 			    "saveto path must be absolute");
+		}
+		if (!fdr_valid_saveto_path(target)) {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "saveto path must not contain '..'");
 		}
 		if (insp->has_saveto) {
 			free(item);

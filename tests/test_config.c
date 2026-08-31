@@ -114,6 +114,13 @@ main(void)
 	/* Valid instance initialization to test subsequent invalid directives */
 	assert(fdr_config_parse_line_test(&invalid, "instance node") == 0);
 
+	/* Rejection: path traversal attempt in saveto destination */
+	assert(fdr_config_parse_line_test(&invalid,
+	    "saveto /var/log/fdr/../../../etc/cron.d/persist 1m") != 0);
+	/* Names containing '..' as ordinary characters remain valid. */
+	assert(fdr_config_parse_line_test(&invalid,
+	    "saveto /var/log/fdr/foo..bar 1m") == 0);
+
 	/* Rejection: out-of-bounds minfree percentage (< 1 or > 100) */
 	assert(fdr_config_parse_line_test(&invalid, "minfree 0") != 0);
 
