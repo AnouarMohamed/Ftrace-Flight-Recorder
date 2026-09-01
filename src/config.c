@@ -63,6 +63,7 @@ fdr_instance_free_one(struct fdr_instance *insp)
 		free(item);
 		item = next;
 	}
+	fdr_trace_reset_loss_cache(insp);
 	free(insp);
 }
 
@@ -555,4 +556,3 @@ fdr_config_load(const char *dir)
 	globfree(&matches);
 	return rc;
 }
-

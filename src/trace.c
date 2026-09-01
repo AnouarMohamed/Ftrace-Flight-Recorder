@@ -33,6 +33,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/** Refresh cached CPU topology once per minute at the five-second sample rate. */
+#define FDR_TRACE_TOPOLOGY_REFRESH_SAMPLES 12U
+
 /**
  * fdr_add_saturating - Performs saturating addition on 64-bit unsigned integers.
  *
@@ -246,10 +249,111 @@ fdr_cpu_dir_name(const char *name)
 }
 
 /**
+ * fdr_trace_cache_path - Appends one stats path to a temporary topology cache.
+ *
+ * @pathsp: In/out pointer to the path array.
+ * @countp: In/out pointer to the populated path count.
+ * @capacityp: In/out pointer to the allocated array capacity.
+ * @path: Stats path to copy.
+ * Return: 0 on success, or -1 on allocation failure.
+ */
+static int
+fdr_trace_cache_path(char ***pathsp, size_t *countp, size_t *capacityp,
+    const char *path)
+{
+	char **resized;
+	char *copy;
+	size_t capacity;
+
+	if (*countp == *capacityp) {
+		capacity = *capacityp == 0 ? 8 : *capacityp * 2;
+		if (capacity < *capacityp || capacity > SIZE_MAX / sizeof(**pathsp))
+			return -1;
+		resized = realloc(*pathsp, capacity * sizeof(**pathsp));
+		if (resized == NULL)
+			return -1;
+		*pathsp = resized;
+		*capacityp = capacity;
+	}
+
+	copy = strdup(path);
+	if (copy == NULL)
+		return -1;
+	(*pathsp)[(*countp)++] = copy;
+	return 0;
+}
+
+/**
+ * fdr_trace_refresh_loss_cache - Rediscovers readable per-CPU stats paths.
+ *
+ * Builds a replacement cache before releasing the current one, so an allocation
+ * or directory-read failure cannot leave partially initialized state behind.
+ *
+ * @insp: Target tracefs instance.
+ * Return: 0 when at least one CPU path was cached, or -1 on failure.
+ */
+static int
+fdr_trace_refresh_loss_cache(struct fdr_instance *insp)
+{
+	char per_cpu[FDR_PATH_MAX];
+	char **paths = NULL;
+	size_t count = 0;
+	size_t capacity = 0;
+	DIR *dir;
+	struct dirent *entry;
+	int rc = -1;
+
+	if (fdr_join_path(per_cpu, sizeof(per_cpu), insp->dname, "per_cpu") != 0)
+		return -1;
+	dir = opendir(per_cpu);
+	if (dir == NULL)
+		return -1;
+
+	for (;;) {
+		char cpu_dir[FDR_PATH_MAX];
+		char stats[FDR_PATH_MAX];
+
+		errno = 0;
+		entry = readdir(dir);
+		if (entry == NULL) {
+			if (errno == 0 && count > 0)
+				rc = 0;
+			break;
+		}
+		if (!fdr_cpu_dir_name(entry->d_name))
+			continue;
+		if (fdr_join_path(cpu_dir, sizeof(cpu_dir), per_cpu,
+		    entry->d_name) != 0 ||
+		    fdr_join_path(stats, sizeof(stats), cpu_dir, "stats") != 0 ||
+		    access(stats, R_OK) != 0)
+			continue;
+		if (fdr_trace_cache_path(&paths, &count, &capacity, stats) != 0)
+			break;
+	}
+	if (closedir(dir) != 0)
+		rc = -1;
+
+	if (rc == 0) {
+		fdr_trace_reset_loss_cache(insp);
+		insp->trace_stats_paths = paths;
+		insp->trace_stats_path_count = count;
+		insp->trace_stats_online_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+		return 0;
+	}
+
+	while (count > 0)
+		free(paths[--count]);
+	free(paths);
+	return -1;
+}
+
+/**
  * fdr_trace_read_loss - Reads and sums loss metrics across all online CPUs for an instance.
  *
- * Opens the `per_cpu/` directory of the instance, scans each `cpuN/stats` file,
- * and sums overruns, dropped events, and commit overruns using saturating addition.
+ * Reuses cached `cpuN/stats` paths and sums overruns, dropped events, and commit
+ * overruns using saturating addition. The topology is refreshed once per minute,
+ * when the online CPU count changes, and when a cached path disappears. This
+ * covers CPU hotplug without rescanning the directory on every five-second sample.
  *
  * @insp: Target tracefs instance.
  * @overruns: Pointer to store aggregated overrun count across all CPUs.
@@ -258,61 +362,48 @@ fdr_cpu_dir_name(const char *name)
  * Return: 0 on success (at least one CPU parsed), or -1 on failure.
  */
 static int
-fdr_trace_read_loss(const struct fdr_instance *insp, uint64_t *overruns,
+fdr_trace_read_loss(struct fdr_instance *insp, uint64_t *overruns,
     uint64_t *dropped, uint64_t *commit_overruns)
 {
-	char per_cpu[FDR_PATH_MAX];
-	DIR *dir;
-	struct dirent *entry;
-	int cpus = 0;
-	int read_error = 0;
+	size_t index;
+	int refreshed = 0;
+	long online_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+
+	if (insp->trace_stats_path_count == 0 ||
+	    insp->trace_stats_samples >= FDR_TRACE_TOPOLOGY_REFRESH_SAMPLES ||
+	    (online_cpus > 0 && insp->trace_stats_online_cpus > 0 &&
+	    online_cpus != insp->trace_stats_online_cpus)) {
+		if (fdr_trace_refresh_loss_cache(insp) != 0)
+			return -1;
+		refreshed = 1;
+	}
+
+retry:
 
 	*overruns = 0;
 	*dropped = 0;
 	*commit_overruns = 0;
 
-	if (fdr_join_path(per_cpu, sizeof(per_cpu), insp->dname, "per_cpu") != 0)
-		return -1;
-
-	dir = opendir(per_cpu);
-	if (dir == NULL)
-		return -1;
-
-	for (;;) {
-		char cpu_dir[FDR_PATH_MAX];
-		char stats[FDR_PATH_MAX];
+	for (index = 0; index < insp->trace_stats_path_count; index++) {
 		uint64_t cpu_overruns = 0;
 		uint64_t cpu_dropped = 0;
 		uint64_t cpu_commit = 0;
 
-		errno = 0;
-		entry = readdir(dir);
-		if (entry == NULL) {
-			read_error = errno;
-			break;
+		if (fdr_trace_parse_stats(insp->trace_stats_paths[index],
+		    &cpu_overruns, &cpu_dropped, &cpu_commit) != 0) {
+			if (refreshed || fdr_trace_refresh_loss_cache(insp) != 0)
+				return -1;
+			refreshed = 1;
+			goto retry;
 		}
-		if (!fdr_cpu_dir_name(entry->d_name))
-			continue;
-		if (fdr_join_path(cpu_dir, sizeof(cpu_dir), per_cpu,
-		    entry->d_name) != 0 ||
-		    fdr_join_path(stats, sizeof(stats), cpu_dir, "stats") != 0 ||
-		    fdr_trace_parse_stats(stats, &cpu_overruns, &cpu_dropped,
-		    &cpu_commit) != 0)
-			continue;
 
 		fdr_add_saturating(overruns, cpu_overruns);
 		fdr_add_saturating(dropped, cpu_dropped);
 		fdr_add_saturating(commit_overruns, cpu_commit);
-		cpus++;
 	}
 
-	if (read_error != 0) {
-		(void)closedir(dir);
-		return -1;
-	}
-	if (closedir(dir) != 0)
-		return -1;
-	return cpus > 0 ? 0 : -1;
+	insp->trace_stats_samples++;
+	return 0;
 }
 
 /**
@@ -609,4 +700,3 @@ failed:
 	    item->fpath, item->line);
 	return -1;
 }
-

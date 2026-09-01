@@ -132,6 +132,10 @@ struct fdr_instance {
 	uint64_t last_trace_overruns;        /**< Previous sampled ring-buffer overrun counter. */
 	uint64_t last_trace_dropped;         /**< Previous sampled tracefs dropped-events counter. */
 	uint64_t last_trace_commit_overruns; /**< Previous sampled commit overrun counter. */
+	char **trace_stats_paths;             /**< Cached per-CPU tracefs stats paths. */
+	size_t trace_stats_path_count;        /**< Number of cached per-CPU stats paths. */
+	unsigned int trace_stats_samples;     /**< Samples since the last topology refresh. */
+	long trace_stats_online_cpus;         /**< Online CPU count at topology discovery. */
 	int minfree;                         /**< Minimum percentage of free disk space required. */
 	int has_saveto;                      /**< Flag: 1 if this instance drains to a file, 0 if setup-only. */
 	int trace_loss_reported;             /**< Flag: 1 if loss warning has already been logged. */
@@ -311,6 +315,9 @@ int fdr_trace_set_probe(struct fdr_instance *insp, const struct fdr_item *item);
 /** @brief Reads per-CPU loss counters (overruns/drops) and updates readiness state. */
 int fdr_trace_sample_loss(struct fdr_instance *insp);
 
+/** @brief Releases cached per-CPU loss-sampling topology for an instance. */
+void fdr_trace_reset_loss_cache(struct fdr_instance *insp);
+
 /** @brief Samples kernel trace loss across all configured active instances. */
 void fdr_trace_sample_all_loss(void);
 
@@ -351,4 +358,3 @@ int fdr_process_reload(void);
 int fdr_http_serve(const char *address, int port);
 
 #endif /* FDR_H */
-

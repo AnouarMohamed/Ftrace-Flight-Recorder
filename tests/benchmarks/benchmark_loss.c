@@ -193,9 +193,9 @@ main(void)
 	    " ns_per_cpu_sample=%.2f\n", cpus, rounds, cpu_ns,
 	    (double)cpu_ns / ((double)cpus * (double)rounds));
 
+	fdr_trace_reset_loss_cache(&instance);
 	fdr_metrics_destroy();
 	remove_cpu_tree(per_cpu, cpus);
 	assert(rmdir(tempdir) == 0);
 	return 0;
 }
-

@@ -23,6 +23,7 @@ shortest path to a working capture.
 | Review the real tracefs text-reader results | [Real-tracefs collector profile](benchmarks/2026-08-30-real-tracefs-text.md) |
 | Review the experimental per-CPU/raw result | [Per-CPU backend probe](benchmarks/2026-08-30-per-cpu-backend.md) |
 | Review high-core integrity-sampling results | [Trace-loss sampling benchmark](benchmarks/2026-08-30-loss-sampling.md) |
+| Review cached topology sampling results | [Topology-cache benchmark](benchmarks/2026-08-31-loss-topology-cache.md) |
 | Review changes since the last release | [Changelog](../CHANGELOG.md) |
 | Understand planned work and limits | [Roadmap](../ROADMAP.md) |
 

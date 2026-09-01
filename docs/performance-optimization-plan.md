@@ -22,6 +22,10 @@ Date: 2026-08-29
 - A synthetic 256-CPU benchmark measured 32.9% lower median process CPU in the
   loss sampler, from 4.78 ms to 3.20 ms per complete topology sample. See the
   [loss-sampling report](benchmarks/2026-08-30-loss-sampling.md).
+- Per-CPU stats paths are now cached with immediate refresh on an online CPU
+  count change or missing path and a one-minute fallback refresh. A 15-pair
+  synthetic 256-CPU comparison measured a smaller additional 4.3% median CPU
+  reduction. See the [topology-cache report](benchmarks/2026-08-31-loss-topology-cache.md).
 - Metric batching is intentionally not enabled yet: shared counters remain
   current after every completed write until a bounded-time publication design
   is proven not to leave low-rate captures stale.
@@ -30,7 +34,7 @@ Date: 2026-08-29
   seconds versus 1.65 for per-CPU text in focused runs, but it is not eligible
   for production until it emits and decodes a standard interoperable archive.
   See the [backend probe report](benchmarks/2026-08-30-per-cpu-backend.md).
-- Rotation decoupling, cached CPU topology, broader kernel/workload
+- Rotation decoupling, broader kernel/workload and real high-core
   qualification, raw capture, and snapshot mode remain open phases below.
 
 ## Objective
@@ -283,7 +287,8 @@ without snapshot support and for operators who require it.
 2. `perf: cache output size and batch shared byte metrics`
 3. `perf: benchmark and tune trace-pipe read batching`
 4. `perf: schedule free-space checks by time and volume`
-5. `perf: cache per-CPU integrity sampling state`
+5. `perf: cache per-CPU integrity sampling state` (implemented; real high-core
+   qualification remains open)
 6. `perf: decouple retention work from capture rotation`
 7. `capture: prototype interoperable raw splice backend`
 8. `capture: add snapshot-triggered recording`

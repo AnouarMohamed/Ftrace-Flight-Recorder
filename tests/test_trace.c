@@ -85,8 +85,10 @@ main(void)
 	char cpu2[FDR_PATH_MAX];
 	char stats0[FDR_PATH_MAX];
 	char stats1[FDR_PATH_MAX];
+	char stats2[FDR_PATH_MAX];
 	struct fdr_instance instance;
 	struct fdr_item item;
+	int attempt;
 
 	assert(mkdtemp(tempdir) != NULL);
 	assert(fdr_join_path(events, sizeof(events), tempdir, "events") == 0);
@@ -136,6 +138,7 @@ main(void)
 	assert(fdr_join_path(cpu2, sizeof(cpu2), per_cpu, "cpu2") == 0);
 	assert(fdr_join_path(stats0, sizeof(stats0), cpu0, "stats") == 0);
 	assert(fdr_join_path(stats1, sizeof(stats1), cpu1, "stats") == 0);
+	assert(fdr_join_path(stats2, sizeof(stats2), cpu2, "stats") == 0);
 	make_dir(per_cpu);
 	make_dir(cpu0);
 	make_dir(cpu1);
@@ -172,12 +175,28 @@ main(void)
 	    "overrun: 1\ncommit overrun: 3\ndropped events: 2\n");
 	assert(fdr_trace_sample_loss(&instance) == 1);
 	assert(fdr_metrics_load_u64(&fdr.metrics->trace_commit_overruns) == 4);
+
+	/* --- Test Suite 5: Cached Topology Refresh & CPU Hotplug --- */
+	make_control(stats2,
+	    "overrun: 4\ncommit overrun: 0\ndropped events: 5\n");
+	for (attempt = 0; attempt < 16; attempt++) {
+		if (fdr_trace_sample_loss(&instance) == 1)
+			break;
+	}
+	assert(attempt < 16);
+	assert(fdr_metrics_load_u64(&fdr.metrics->trace_overruns) == 12);
+	assert(fdr_metrics_load_u64(&fdr.metrics->trace_dropped_events) == 17);
+
+	/* A disappearing cached CPU path triggers an immediate safe rediscovery. */
+	assert(unlink(stats1) == 0);
+	assert(rmdir(cpu1) == 0);
+	assert(fdr_trace_sample_loss(&instance) == 0);
+	fdr_trace_reset_loss_cache(&instance);
 	fdr_metrics_destroy();
 
 	/* Cleanup mock directory hierarchy */
-	assert(unlink(stats1) == 0);
+	assert(unlink(stats2) == 0);
 	assert(unlink(stats0) == 0);
-	assert(rmdir(cpu1) == 0);
 	assert(rmdir(cpu0) == 0);
 	assert(rmdir(cpu2) == 0);
 	assert(rmdir(per_cpu) == 0);
@@ -191,4 +210,3 @@ main(void)
 	puts("trace tests passed");
 	return 0;
 }
-
