@@ -12,6 +12,9 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	uint64_t parsed_size = 0;
 	char *input;
 
+	if (size == SIZE_MAX)
+		return 0;
+
 	input = malloc(size + 1);
 	if (input == NULL)
 		return 0;
