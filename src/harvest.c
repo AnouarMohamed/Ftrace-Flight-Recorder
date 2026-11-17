@@ -44,9 +44,6 @@
 /** Maximum read buffer allocation ceiling (1 MiB). */
 #define FDR_HARVEST_BUFFER_MAX (1024U * 1024U)
 
-/** Byte interval between consecutive fstatvfs filesystem free-space checks (1 MiB). */
-#define FDR_SPACE_CHECK_BYTES (1024U * 1024U)
-
 /** Backoff duration in seconds before retrying failed log rotation. */
 #define FDR_ROTATION_RETRY_SECONDS 1
 
@@ -290,6 +287,72 @@ fdr_schedule_rotation_retry(struct timespec *retry_after)
 }
 
 /**
+ * fdr_space_check_due - Decides whether storage protection must run again.
+ *
+ * @bytes_since_check: Bytes read since the last completed free-space check.
+ * @last_check: Monotonic time of the last completed check.
+ * @now: Current monotonic time.
+ * Return: 1 when the byte budget or five-second interval is reached, 0 otherwise.
+ */
+int
+fdr_space_check_due(uint64_t bytes_since_check,
+    const struct timespec *last_check, const struct timespec *now)
+{
+	time_t elapsed_seconds;
+
+	if (bytes_since_check >= FDR_SPACE_CHECK_BYTES)
+		return 1;
+	if (last_check == NULL || now == NULL)
+		return 0;
+	if (now->tv_sec < last_check->tv_sec ||
+	    (now->tv_sec == last_check->tv_sec &&
+	    now->tv_nsec < last_check->tv_nsec))
+		return 0;
+
+	elapsed_seconds = now->tv_sec - last_check->tv_sec;
+	if (elapsed_seconds > FDR_SPACE_CHECK_SECONDS)
+		return 1;
+	return elapsed_seconds == FDR_SPACE_CHECK_SECONDS &&
+	    now->tv_nsec >= last_check->tv_nsec;
+}
+
+/**
+ * fdr_space_check_run - Checks free space and updates warning state.
+ *
+ * @fd: Open destination file descriptor.
+ * @insp: Instance providing the minfree threshold.
+ * @target: Destination path used in diagnostics.
+ * @space_ok: In/out availability state; set to 1 when space is safe.
+ * @warned_space: In/out warning latch to avoid repeated low-space messages.
+ * @last_check: In/out monotonic timestamp of the completed check.
+ * Return: 0 on success, -1 when the filesystem cannot be inspected.
+ */
+static int
+fdr_space_check_run(int fd, const struct fdr_instance *insp,
+    const char *target, int *space_ok, int *warned_space,
+    struct timespec *last_check)
+{
+	struct timespec now;
+	int available;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)
+		*last_check = now;
+	available = fdr_space_available(fd, insp->minfree);
+	if (available < 0)
+		return -1;
+	if (!available && !*warned_space) {
+		fdr_warn("free space is at or below %d%% for %s; dropping data",
+		    insp->minfree, target);
+		*warned_space = 1;
+	} else if (available && *warned_space) {
+		fdr_log("info", "free space recovered for %s", target);
+		*warned_space = 0;
+	}
+	*space_ok = available;
+	return 0;
+}
+
+/**
  * fdr_count_drop - Records intentionally discarded bytes in metrics and degrades readiness.
  *
  * Called when data is discarded due to minfree protection or rotation failure.
@@ -316,7 +379,8 @@ fdr_count_drop(size_t bytes)
  * 5. Enters infinite read/check/write loop:
  *    - Reopens log if signal was received.
  *    - Reads next block from kernel trace_pipe.
- *    - Checks free space every 1 MiB written; drops data if free space <= minfree.
+ *    - Checks free space after the earlier of 1 MiB read or five seconds,
+ *      and immediately after reopen or rotation; drops data if space is low.
  *    - Checks bounded file size (`maxsize`); triggers rotation if next block exceeds limit.
  *    - Writes buffer to disk via `fdr_write_all` and updates `bytes_written` metric.
  *
@@ -339,6 +403,7 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 	int rotation_failed = 0;
 	struct stat st;
 	struct sigaction sa;
+	struct timespec last_space_check = { 0, 0 };
 	struct timespec rotation_retry_after = { 0, 0 };
 	int rc = -1;
 
@@ -402,6 +467,10 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 				break;
 			writefd = newfd;
 			fdr_log("info", "reopened %s after reopen signal", item->target);
+			if (fdr_space_check_run(writefd, insp, item->target,
+			    &space_ok, &warned_space, &last_space_check) != 0)
+				break;
+			bytes_since_space_check = 0;
 		}
 
 		/* Blocking read from kernel trace_pipe */
@@ -418,19 +487,26 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 		}
 
 		/* Periodic filesystem free space inspection */
-		if (bytes_since_space_check >= FDR_SPACE_CHECK_BYTES) {
-			space_ok = fdr_space_available(writefd, insp->minfree);
-			if (space_ok < 0)
-				break;
-			if (!space_ok && !warned_space) {
-				fdr_warn("free space is at or below %d%% for %s; dropping data",
-				    insp->minfree, item->target);
-				warned_space = 1;
-			} else if (space_ok && warned_space) {
-				fdr_log("info", "free space recovered for %s", item->target);
-				warned_space = 0;
+		{
+			int space_due;
+
+			space_due = bytes_since_space_check >=
+			    FDR_SPACE_CHECK_BYTES;
+			if (!space_due) {
+				struct timespec now;
+
+				if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)
+					space_due = fdr_space_check_due(
+					    bytes_since_space_check,
+					    &last_space_check, &now);
 			}
-			bytes_since_space_check = 0;
+			if (space_due) {
+				if (fdr_space_check_run(writefd, insp,
+				    item->target, &space_ok, &warned_space,
+				    &last_space_check) != 0)
+					break;
+				bytes_since_space_check = 0;
+			}
 		}
 		if (UINT64_MAX - bytes_since_space_check < (uint64_t)n)
 			bytes_since_space_check = UINT64_MAX;
@@ -479,6 +555,15 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 				if (newfd < 0)
 					break;
 				writefd = newfd;
+				if (fdr_space_check_run(writefd, insp,
+				    item->target, &space_ok, &warned_space,
+				    &last_space_check) != 0)
+					break;
+				bytes_since_space_check = 0;
+				if (!space_ok) {
+					fdr_count_drop((size_t)n);
+					continue;
+				}
 			}
 		}
 

@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
   and remove the default CPU limit to avoid collector throttling.
 - Make the host `/lib/modules` mount opt-in for configurations that actually
   use `modprobe`.
+- Schedule free-space checks by the earlier of a 1 MiB read budget or a
+  five-second monotonic interval, and recheck immediately after reopen or
+  successful rotation.
 - Harden CI checks for rendered Kubernetes invariants, strict Helm linting,
   dashboard JSON, shell scripts, and the lab automation.
 - Advance the Helm chart to version 0.5.0 for the new observability and
