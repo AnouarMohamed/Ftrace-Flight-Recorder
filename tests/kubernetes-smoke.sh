@@ -166,8 +166,10 @@ for tool in docker kind kubectl helm curl; do
 	command -v "$tool" >/dev/null 2>&1 ||
 	    fail "required command not found: $tool"
 done
-[ -d /sys/kernel/tracing/instances ] ||
-    fail "tracefs is not mounted at /sys/kernel/tracing"
+if [ ! -d /sys/kernel/tracing/instances ] && \
+    ! sudo -n test -d /sys/kernel/tracing/instances 2>/dev/null; then
+	fail "tracefs is not mounted at /sys/kernel/tracing"
+fi
 [ -x "$repo_root/.build/sched_load" ] ||
     fail ".build/sched_load is not built; run 'make .build/sched_load'"
 [ "$reuse_cluster" = yes ] || [ "$reuse_cluster" = no ] ||
