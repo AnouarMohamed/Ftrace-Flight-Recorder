@@ -6,6 +6,7 @@ fullnameOverride: ""
 image:
   repository: ghcr.io/anouarmohamed/fdr-k8s
   tag: v1.4.0
+  digest: sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c
   pullPolicy: IfNotPresent
 
 http:

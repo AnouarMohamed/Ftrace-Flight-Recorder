@@ -65,6 +65,7 @@ jobs:
             echo 'default Helm output contains a mutable latest image' >&2
             exit 1
           fi
+          grep -q 'ghcr.io/anouarmohamed/fdr-k8s@sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c' /tmp/fdr-helm-default.yaml
           if grep -q '/lib/modules' /tmp/fdr-helm-default.yaml; then
             echo 'default Helm output exposes host modules' >&2
             exit 1
@@ -100,6 +101,7 @@ jobs:
             echo 'Kustomize output contains a mutable latest image' >&2
             exit 1
           fi
+          grep -q 'ghcr.io/anouarmohamed/fdr-k8s@sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c' /tmp/fdr-kustomize.yaml
           if grep -q '/lib/modules' /tmp/fdr-kustomize.yaml; then
             echo 'base Kustomize output exposes host modules' >&2
             exit 1

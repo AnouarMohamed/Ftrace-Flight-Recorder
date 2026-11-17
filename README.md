@@ -163,6 +163,33 @@ component:
 Compromise of the privileged Kubernetes pod must be treated as compromise of
 the node. Read [SECURITY.md](SECURITY.md) before production deployment.
 
+## Release images and rollback
+
+The tested image is pinned by digest in both deployment paths:
+
+| Release | Image | Digest |
+|---|---|---|
+| v1.4.0 | `ghcr.io/anouarmohamed/fdr-k8s` | `sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c` |
+
+Record the running digest before an upgrade. Roll back by setting the previous
+digest explicitly, not by relying on a mutable tag:
+
+~~~sh
+kubectl -n fdr-system set image daemonset/fdr \
+  fdr=ghcr.io/anouarmohamed/fdr-k8s@sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c
+~~~
+
+For Helm, override `image.digest` with the previous digest:
+
+~~~sh
+helm upgrade fdr deploy/helm/fdr --namespace fdr-system \
+  --set image.digest=sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c
+~~~
+
+Clear the override or set a reviewed digest when rolling forward. The publish
+workflow writes tags and the multi-architecture digest to the same registry
+package.
+
 ## Documentation
 
 Start at the [documentation index](docs/README.md), or go directly to:
