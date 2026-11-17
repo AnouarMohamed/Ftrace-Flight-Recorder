@@ -118,7 +118,9 @@ modules:
 ~~~
 
 This does not remove the privileged security boundary; it only avoids exposing
-host modules to deployments that do not use them.
+host modules to deployments that do not use them. See the
+[security guide](../../../SECURITY.md#reduced-module-exposure) for the trust
+model, namespace-scoped RBAC, and Pod Security admission guidance.
 
 ## Prometheus, alerts, Grafana, and network policy
 

@@ -245,6 +245,8 @@ can enforce timeouts and record the exit.
 | Symptom | Likely cause | Checks and response |
 |---|---|---|
 | `no configuration files` | No regular `*.conf` exists directly in the selected directory | Check `-c`, filenames, permissions, and `fdrd -n` output |
+| Pod Security or admission rejection | Namespace enforces `restricted`, or a webhook denies privileged pods | Read the apply warning, namespace events, and DaemonSet description; use a dedicated reviewed namespace policy |
+| `Forbidden` during rollout | Caller lacks namespace-scoped DaemonSet or ConfigMap permissions | Compare the caller's Role and RoleBinding with the [security guide](../SECURITY.md#kubernetes-rbac) |
 | Tracefs or `instances` missing | Tracefs is not mounted or the wrong root was selected | Run `findmnt -T /sys/kernel/tracing`; inspect `-d`; review host policy before mounting |
 | Kubernetes preflight fails | HostPath is not writable tracefs or lacks `instances` | Read the `tracefs-preflight` init-container log and verify the node mount |
 | `/readyz` returns 503 | Probe, collector, write, or trace-loss failure | Compare counters, inspect logs, and preserve evidence before resetting state |

@@ -60,6 +60,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 
+- Add a Kubernetes threat model with namespace-scoped RBAC, reduced module
+  exposure, and Pod Security admission failure guidance.
 - Add a milestone-based product and Kubernetes hardening roadmap.
 - Document the privileged host-kernel security boundary, module-loading
   tradeoffs, monitoring exposure, and validation limits.

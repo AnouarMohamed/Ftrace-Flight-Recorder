@@ -187,6 +187,10 @@ Acceptance criteria:
 - installation fails clearly when Pod Security or admission policy rejects the
   workload.
 
+Documented in `SECURITY.md`, the deployment guides, and the operations
+troubleshooting table. Module loading remains opt-in; the privileged tracefs
+boundary is explicit and is not presented as a reduced-capability mode.
+
 ## Milestone 2: real-kernel and real-cluster validation
 
 Create a disposable Linux test environment. Never run destructive tracefs or
