@@ -14,8 +14,10 @@ All notable changes to this project are documented here. The format follows
   recorder cannot silently present known-incomplete evidence as ready.
 - Add optional Helm `PodMonitor`, six evidence-integrity alert rules, a compact
   Grafana dashboard, and an ingress `NetworkPolicy`.
-- Add a tracefs preflight init container with actionable diagnostics for
-  Kubernetes startup failures.
+- Add a tracefs preflight init container that validates the mount type and
+  options, configuration syntax, required modules, and configured tracepoints
+  before Kubernetes starts the collector, including legacy debugfs tracing
+  paths.
 - Add a pinned Kind observability lab covering real capture, Prometheus
   discovery, Grafana states, configuration rollout, collector recovery,
   bounded rotation, and tracefs cleanup.

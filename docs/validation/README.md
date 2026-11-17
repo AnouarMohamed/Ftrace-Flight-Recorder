@@ -8,7 +8,7 @@ report; it is not a universal compatibility claim.
 
 | Layer | Purpose | Kernel boundary |
 |---|---|---|
-| `make check` | Parser, lifecycle, HTTP, metrics, reload, rotation, and failure regressions using fake tracefs fixtures | Does not exercise a real kernel tracefs |
+| `make check` | Parser, lifecycle, HTTP, metrics, reload, rotation, preflight, and failure regressions using fake tracefs fixtures | Does not exercise a real kernel tracefs |
 | Kind observability lab | DaemonSet lifecycle, real capture, rollout, degraded readiness, recovery, rotation, Prometheus, alerts, and Grafana | Kind shares the host kernel |
 | Local-kernel KVM matrix | systemd lifecycle, real capture, and controlled trace loss on installed kernels | Disposable guest, independent boot |
 | Ubuntu cloud-image VM matrix | Distribution qualification and optional single-node k3s deployment | Disposable KVM guest |

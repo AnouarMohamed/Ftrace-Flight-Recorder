@@ -246,7 +246,7 @@ can enforce timeouts and record the exit.
 |---|---|---|
 | `no configuration files` | No regular `*.conf` exists directly in the selected directory | Check `-c`, filenames, permissions, and `fdrd -n` output |
 | Tracefs or `instances` missing | Tracefs is not mounted or the wrong root was selected | Run `findmnt -T /sys/kernel/tracing`; inspect `-d`; review host policy before mounting |
-| Kubernetes preflight fails | HostPath is not writable tracefs or lacks `instances` | Read the `tracefs-preflight` init-container log and verify the node mount |
+| Kubernetes preflight fails | HostPath is not writable tracefs or lacks `instances`, or config syntax, module, or event is invalid on the node | Read the `tracefs-preflight` log, verify the mount and event on every selected node, and run `fdrd -n -c /etc/fdr.d` |
 | `/readyz` returns 503 | Probe, collector, write, or trace-loss failure | Compare counters, inspect logs, and preserve evidence before resetting state |
 | Probe failures increase | Event is absent, filter is invalid, module failed, or access was denied | Inspect the running kernel's event `format` and `filter`; validate on every supported kernel |
 | Trace-loss counters increase | Event rate exceeded buffer or collector capacity | Preserve evidence; narrow probes, enlarge per-CPU buffers, remove CPU throttling, or improve storage after representative testing |
