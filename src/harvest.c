@@ -51,6 +51,21 @@
 #define FDR_ROTATION_RETRY_SECONDS 1
 
 /**
+ * fdr_monotonic_ns - Reads the monotonic clock as nanoseconds.
+ *
+ * @return Monotonic nanoseconds, or 0 when the clock cannot be read.
+ */
+static uint64_t
+fdr_monotonic_ns(void)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+		return 0;
+	return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+/**
  * fdr_sighup_worker - Signal handler for worker processes receiving SIGHUP or SIGUSR1.
  *
  * Sets the async-signal-safe flag `fdr.got_sighup` to 1, notifying the harvest loop
@@ -416,9 +431,15 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 			rc = 0;
 			break;
 		}
+		if (fdr.metrics != NULL) {
+			fdr_metrics_add(&fdr.metrics->read_calls, 1);
+			fdr_metrics_add(&fdr.metrics->read_bytes, (uint64_t)n);
+		}
 
 		/* Periodic filesystem free space inspection */
 		if (bytes_since_space_check >= FDR_SPACE_CHECK_BYTES) {
+			if (fdr.metrics != NULL)
+				fdr_metrics_add(&fdr.metrics->space_checks, 1);
 			space_ok = fdr_space_available(writefd, insp->minfree);
 			if (space_ok < 0)
 				break;
@@ -451,14 +472,24 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 				continue;
 			}
 			if (current_size > insp->maxsize - (uint64_t)n) {
+				uint64_t rotation_started;
+				uint64_t rotation_elapsed;
 				int newfd;
+				int rotation_result;
 
 				if (rotation_failed &&
 				    !fdr_rotation_retry_ready(&rotation_retry_after)) {
 					fdr_count_drop((size_t)n);
 					continue;
 				}
-				if (fdr_rotate_logs(insp, item->target) < 0) {
+				rotation_started = fdr_monotonic_ns();
+				rotation_result = fdr_rotate_logs(insp, item->target);
+				rotation_elapsed = fdr_monotonic_ns();
+				if (fdr.metrics != NULL && rotation_started != 0 &&
+				    rotation_elapsed >= rotation_started)
+					fdr_metrics_add(&fdr.metrics->rotation_duration_ns,
+					    rotation_elapsed - rotation_started);
+				if (rotation_result < 0) {
 					if (fdr.metrics != NULL)
 						fdr_metrics_add(
 						    &fdr.metrics->rotation_failures, 1);
@@ -483,6 +514,8 @@ fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item)
 		}
 
 		/* Write buffer to log file */
+		if (fdr.metrics != NULL)
+			fdr_metrics_add(&fdr.metrics->write_calls, 1);
 		if (fdr_write_all(writefd, buffer, (size_t)n) != 0) {
 			fdr_warn("cannot write %s: %s", item->target, strerror(errno));
 			if (fdr.metrics != NULL)
