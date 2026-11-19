@@ -436,6 +436,7 @@ fdr_process_reload(void)
 	if (fdr.metrics != NULL) {
 		fdr_metrics_store_int(&fdr.metrics->instances, new_count);
 		fdr_metrics_store_int(&fdr.metrics->healthy, 1);
+		fdr_metrics_update_trace_buffer();
 	}
 
 	if (fdr_process_start_all() != 0) {

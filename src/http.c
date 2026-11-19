@@ -179,7 +179,7 @@ fdr_http_handle(int cfd)
 	char method[8];
 	char path[256];
 	char version[16];
-	char body[4096];
+	char body[8192];
 	struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
 	ssize_t n;
 	int alive;
@@ -220,11 +220,29 @@ fdr_http_handle(int cfd)
 		    ready ? "ready\n" : "not ready\n");
 	} else if (strcmp(path, "/metrics") == 0) {
 		const struct fdr_metrics *m = fdr.metrics;
+		uint64_t rotation_ns =
+		    m ? fdr_metrics_load_u64(&m->rotation_duration_ns) : 0;
+		int body_length;
 
-		(void)snprintf(body, sizeof(body),
+		body_length = snprintf(body, sizeof(body),
 		    "# HELP fdr_bytes_written_total Bytes written to save files\n"
 		    "# TYPE fdr_bytes_written_total counter\n"
 		    "fdr_bytes_written_total %" PRIu64 "\n"
+		    "# HELP fdr_read_calls_total Successful collector read calls\n"
+		    "# TYPE fdr_read_calls_total counter\n"
+		    "fdr_read_calls_total %" PRIu64 "\n"
+		    "# HELP fdr_read_bytes_total Bytes read from trace_pipe\n"
+		    "# TYPE fdr_read_bytes_total counter\n"
+		    "fdr_read_bytes_total %" PRIu64 "\n"
+		    "# HELP fdr_write_calls_total Logical collector write attempts\n"
+		    "# TYPE fdr_write_calls_total counter\n"
+		    "fdr_write_calls_total %" PRIu64 "\n"
+		    "# HELP fdr_space_checks_total Filesystem free-space checks\n"
+		    "# TYPE fdr_space_checks_total counter\n"
+		    "fdr_space_checks_total %" PRIu64 "\n"
+		    "# HELP fdr_rotation_duration_seconds_total Time spent rotating capture files\n"
+		    "# TYPE fdr_rotation_duration_seconds_total counter\n"
+		    "fdr_rotation_duration_seconds_total %" PRIu64 ".%09" PRIu64 "\n"
 		    "# HELP fdr_bytes_dropped_total Bytes dropped to protect storage\n"
 		    "# TYPE fdr_bytes_dropped_total counter\n"
 		    "fdr_bytes_dropped_total %" PRIu64 "\n"
@@ -258,6 +276,12 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_loss_sampling_ok 1 when the latest loss-sampling cycle succeeded for every capture instance\n"
 		    "# TYPE fdr_loss_sampling_ok gauge\n"
 		    "fdr_loss_sampling_ok %d\n"
+		    "# HELP fdr_trace_buffer_bytes Configured trace buffer bytes across online CPUs\n"
+		    "# TYPE fdr_trace_buffer_bytes gauge\n"
+		    "fdr_trace_buffer_bytes %" PRIu64 "\n"
+		    "# HELP fdr_collector_info Selected collector backend and fallback mode\n"
+		    "# TYPE fdr_collector_info gauge\n"
+		    "fdr_collector_info{backend=\"text\",fallback=\"none\"} 1\n"
 		    "# HELP fdr_instances Configured instances\n"
 		    "# TYPE fdr_instances gauge\n"
 		    "fdr_instances %d\n"
@@ -268,6 +292,12 @@ fdr_http_handle(int cfd)
 		    "# TYPE fdr_ready gauge\n"
 		    "fdr_ready %d\n",
 		    m ? fdr_metrics_load_u64(&m->bytes_written) : 0,
+		    m ? fdr_metrics_load_u64(&m->read_calls) : 0,
+		    m ? fdr_metrics_load_u64(&m->read_bytes) : 0,
+		    m ? fdr_metrics_load_u64(&m->write_calls) : 0,
+		    m ? fdr_metrics_load_u64(&m->space_checks) : 0,
+		    rotation_ns / UINT64_C(1000000000),
+		    rotation_ns % UINT64_C(1000000000),
 		    m ? fdr_metrics_load_u64(&m->bytes_dropped) : 0,
 		    m ? fdr_metrics_load_u64(&m->rotations) : 0,
 		    m ? fdr_metrics_load_u64(&m->rotation_failures) : 0,
@@ -279,9 +309,15 @@ fdr_http_handle(int cfd)
 		    m ? fdr_metrics_load_u64(&m->trace_commit_overruns) : 0,
 		    m ? fdr_metrics_load_u64(&m->loss_sampling_failures) : 0,
 		    m ? fdr_metrics_load_int(&m->loss_sampling_ok) : 0,
+		    m ? fdr_metrics_load_u64(&m->trace_buffer_bytes) : 0,
 		    m ? fdr_metrics_load_int(&m->instances) : 0,
 		    m ? fdr_metrics_load_int(&m->workers_alive) : 0,
 		    ready ? 1 : 0);
+		if (body_length < 0 || (size_t)body_length >= sizeof(body)) {
+			(void)fdr_http_reply(cfd, 500, "Internal Server Error",
+			    "text/plain", "metrics unavailable\n");
+			return;
+		}
 		(void)fdr_http_reply(cfd, 200, "OK",
 		    "text/plain; version=0.0.4; charset=utf-8", body);
 	} else {
@@ -349,8 +385,10 @@ fdr_http_serve(const char *address, int port)
 			break;
 
 		/* Check periodic kernel loss sampling schedule */
-		if (fdr_trace_stats_due(&next_trace_stats))
+		if (fdr_trace_stats_due(&next_trace_stats)) {
 			fdr_trace_sample_all_loss();
+			fdr_metrics_update_trace_buffer();
+		}
 
 		pfd.revents = 0;
 		poll_rc = poll(listener >= 0 ? &pfd : NULL,

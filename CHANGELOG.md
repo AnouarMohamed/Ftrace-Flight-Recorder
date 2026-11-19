@@ -34,6 +34,9 @@ All notable changes to this project are documented here. The format follows
   reproducible qualification requirements.
 - Add a disposable per-CPU backend probe for CPU-local text reads and raw-page
   `splice()` extraction without changing the production text backend.
+- Export collector self-observation metrics for read calls and bytes, write
+  calls, free-space checks, cumulative rotation duration, configured
+  trace-buffer bytes, and the selected backend.
 
 ### Changed
 
