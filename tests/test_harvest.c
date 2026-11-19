@@ -665,7 +665,6 @@ test_space_check_schedule(void)
 	now.tv_sec += FDR_SPACE_CHECK_SECONDS + 1;
 	assert(fdr_space_check_due(0, &last, &now) == 1);
 }
-
 int
 main(void)
 {
