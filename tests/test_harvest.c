@@ -10,6 +10,7 @@
  * 4. External Signal Reopen: Verifies SIGHUP/SIGUSR1 handler reopens file after out-of-band rename.
  * 5. Failure Recovery: Simulates rotation failure (conflicting backup directory), tests retry
  *    rate-limiting and automatic recovery once the conflict is removed.
+ * 6. Free-Space Scheduling: Verifies byte-budget and monotonic-time boundaries.
  */
 
 #include "fdr.h"
@@ -294,6 +295,42 @@ test_rotation_failure_recovery(void)
 }
 
 /**
+ * test_space_check_schedule - Verifies byte and monotonic scheduling boundaries.
+ *
+ * Uses fixed timestamps so the five-second boundary and clock rollback can be
+ * checked deterministically without sleeping.
+ */
+static void
+test_space_check_schedule(void)
+{
+	struct timespec last = { .tv_sec = 100, .tv_nsec = 900000000 };
+	struct timespec now;
+
+	assert(fdr_space_check_due(FDR_SPACE_CHECK_BYTES, &last, &last) == 1);
+	assert(fdr_space_check_due(FDR_SPACE_CHECK_BYTES - 1, &last, &last) == 0);
+
+	now = last;
+	now.tv_sec += FDR_SPACE_CHECK_SECONDS - 1;
+	now.tv_nsec = 999999999;
+	assert(fdr_space_check_due(0, &last, &now) == 0);
+
+	now = last;
+	now.tv_sec += FDR_SPACE_CHECK_SECONDS;
+	assert(fdr_space_check_due(0, &last, &now) == 1);
+
+	now.tv_nsec = 899999999;
+	assert(fdr_space_check_due(0, &last, &now) == 0);
+
+	now = last;
+	now.tv_sec -= 1;
+	assert(fdr_space_check_due(0, &last, &now) == 0);
+
+	now = last;
+	now.tv_sec += FDR_SPACE_CHECK_SECONDS + 1;
+	assert(fdr_space_check_due(0, &last, &now) == 1);
+}
+
+/**
  * test_trace_buffer_metric - Verifies configured buffer accounting across CPUs.
  *
  * Builds a temporary instance list with explicit and default buffer sizes,
@@ -361,6 +398,7 @@ main(void)
 
 	/* Initialize shared memory metrics */
 	fdr_metrics_init();
+	test_space_check_schedule();
 	test_trace_buffer_metric();
 
 	/* --- Test Suite 1: Disk Space Protection (minfree 100% forces drop) --- */

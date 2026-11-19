@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h>
 
 /*
  * Buffer & Path Capacity Limits
@@ -63,6 +64,12 @@
 
 /** Default percentage of free filesystem space required before dropping data. */
 #define FDR_MINFREE_DEFAULT      5
+
+/** Captured-byte interval between filesystem free-space checks (1 MiB). */
+#define FDR_SPACE_CHECK_BYTES   (1024U * 1024U)
+
+/** Maximum monotonic seconds between filesystem free-space checks. */
+#define FDR_SPACE_CHECK_SECONDS 5
 
 /*
  * Compiler Attributes & Printf Format Checking
@@ -339,6 +346,10 @@ void fdr_trace_sample_all_loss(void);
 
 /** @brief Main data-plane worker loop: continuously drains trace_pipe to disk. */
 int fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item);
+
+/** @brief Returns 1 when the byte budget or monotonic interval requires a check. */
+int fdr_space_check_due(uint64_t bytes_since_check,
+    const struct timespec *last_check, const struct timespec *now);
 
 /*
  * Process Supervision & Signals (process.c)

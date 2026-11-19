@@ -8,8 +8,9 @@ Date: 2026-08-29
 - Phase 0 has a deterministic 64 MiB collector benchmark with byte-for-byte
   output and metric checks.
 - The first Phase 1 tranche caches bounded-output size, schedules storage
-  checks by captured bytes, and replaces formatted per-CPU loss parsing with
-  bounded direct reads.
+  checks by the earlier of captured bytes or a five-second monotonic interval,
+  rechecks after reopen and rotation, and replaces formatted per-CPU loss
+  parsing with bounded direct reads.
 - A regular-file microbenchmark measured 53.3% lower median process CPU with
   exact output, but it does not exercise the kernel text formatter and is not
   accepted as a real FDR performance result. See the corrected
@@ -187,6 +188,11 @@ Check `fstatvfs()` after the earlier of a monotonic interval or a byte budget.
 This keeps protection responsive at high throughput without checking
 excessively at low throughput. Recheck immediately after reopen and rotation.
 
+Implemented with a 1 MiB byte budget, a five-second monotonic interval, and
+unconditional checks after a successful reopen or rotation. Time is evaluated
+when the next trace block arrives, so a fully idle capture defers the check
+until data exists to protect.
+
 ### 5. Optimize loss-stat sampling
 
 Discover per-CPU stats paths once per instance. Use bounded direct reads and
@@ -293,7 +299,7 @@ without snapshot support and for operators who require it.
 1. `bench: add deterministic collector performance harness`
 2. `perf: cache output size and batch shared byte metrics`
 3. `perf: benchmark and tune trace-pipe read batching`
-4. `perf: schedule free-space checks by time and volume`
+4. `perf: schedule free-space checks by time and volume` (implemented)
 5. `perf: cache per-CPU integrity sampling state` (implemented; real high-core
    qualification remains open)
 6. `perf: decouple retention work from capture rotation`
