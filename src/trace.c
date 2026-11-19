@@ -36,6 +36,12 @@
 /** Refresh cached CPU topology once per minute at the five-second sample rate. */
 #define FDR_TRACE_TOPOLOGY_REFRESH_SAMPLES 12U
 
+/** Consecutive failed samples before loss-sampling failure degrades readiness. */
+#define FDR_TRACE_SAMPLING_DEGRADE_AFTER 3U
+
+/** Re-log a persistent sampling failure once per minute at the default cadence. */
+#define FDR_TRACE_SAMPLING_WARN_INTERVAL 12U
+
 /**
  * fdr_add_saturating - Performs saturating addition on 64-bit unsigned integers.
  *
@@ -425,12 +431,77 @@ fdr_trace_counter_delta(uint64_t current, uint64_t *previous)
 }
 
 /**
+ * fdr_trace_note_sampling_failure - Records and reports a failed loss sample.
+ *
+ * The failure counter and gauge make a blind loss-sampling path visible even
+ * when kernel loss counters stay flat. Warnings are emitted on the first
+ * failure, when persistent failure degrades readiness, and once per minute
+ * while the failure continues. Readiness remains latched until a reload or
+ * restart because the unobserved interval cannot be proven loss-free.
+ *
+ * @insp: Instance whose loss sample failed.
+ */
+static void
+fdr_trace_note_sampling_failure(struct fdr_instance *insp)
+{
+	uint64_t failures;
+
+	if (fdr.metrics == NULL)
+		return;
+
+	fdr_metrics_add(&fdr.metrics->loss_sampling_failures, 1);
+	fdr_metrics_store_int(&fdr.metrics->loss_sampling_ok, 0);
+
+	if (insp->trace_sampling_failures < UINT64_MAX)
+		insp->trace_sampling_failures++;
+	failures = insp->trace_sampling_failures;
+
+	if (failures == 1) {
+		fdr_warn("cannot sample kernel trace loss for instance %s; "
+		    "evidence-integrity checks are unavailable", insp->iname);
+	} else if (failures == FDR_TRACE_SAMPLING_DEGRADE_AFTER) {
+		fdr_warn("kernel trace-loss sampling failed %" PRIu64
+		    " consecutive times for instance %s; readiness degraded",
+		    failures, insp->iname);
+	} else if (failures > FDR_TRACE_SAMPLING_DEGRADE_AFTER &&
+	    failures % FDR_TRACE_SAMPLING_WARN_INTERVAL == 0) {
+		fdr_warn("kernel trace-loss sampling remains unavailable for "
+		    "instance %s (%" PRIu64 " consecutive failures)",
+		    insp->iname, failures);
+	}
+
+	if (failures >= FDR_TRACE_SAMPLING_DEGRADE_AFTER)
+		fdr_metrics_store_int(&fdr.metrics->healthy, 0);
+}
+
+/**
+ * fdr_trace_note_sampling_success - Clears consecutive sampling failures.
+ *
+ * @insp: Instance whose loss sample succeeded.
+ */
+static void
+fdr_trace_note_sampling_success(struct fdr_instance *insp)
+{
+	uint64_t failures = insp->trace_sampling_failures;
+
+	insp->trace_sampling_failures = 0;
+	if (failures > 0) {
+		fdr_log("info", "kernel trace-loss sampling recovered for "
+		    "instance %s after %" PRIu64 " failed attempts",
+		    insp->iname, failures);
+	}
+}
+
+/**
  * fdr_trace_sample_loss - Samples loss counters for an instance and updates metrics.
  *
  * If any new overruns, dropped events, or commit overruns are detected:
  * - Atomically increments Prometheus counters in shared memory.
  * - Degrades daemon readiness state (healthy = 0).
  * - Emits a warning log message on the first observed loss.
+ *
+ * Failed samples increment the sampling-failure counter and clear the sampling
+ * gauge. Persistent failure also degrades readiness.
  *
  * @insp: Target tracefs instance.
  * Return: 1 if loss was detected, 0 if healthy/no new loss, -1 on read error.
@@ -445,10 +516,14 @@ fdr_trace_sample_loss(struct fdr_instance *insp)
 	uint64_t dropped_delta;
 	uint64_t commit_delta;
 
-	if (fdr.metrics == NULL ||
-	    fdr_trace_read_loss(insp, &overruns, &dropped,
-	    &commit_overruns) != 0)
+	if (fdr.metrics == NULL)
 		return -1;
+	if (fdr_trace_read_loss(insp, &overruns, &dropped,
+	    &commit_overruns) != 0) {
+		fdr_trace_note_sampling_failure(insp);
+		return -1;
+	}
+	fdr_trace_note_sampling_success(insp);
 
 	overrun_delta = fdr_trace_counter_delta(overruns,
 	    &insp->last_trace_overruns);
@@ -479,15 +554,28 @@ fdr_trace_sample_loss(struct fdr_instance *insp)
 }
 
 /**
- * fdr_trace_sample_all_loss - Samples kernel loss across all active loaded instances.
+ * fdr_trace_sample_all_loss - Samples kernel loss across all capture instances.
+ *
+ * Setup-only instances are skipped because they have no active collector.
+ * The process-wide sampling gauge reports whether every capture instance was
+ * sampled successfully in this cycle.
  */
 void
 fdr_trace_sample_all_loss(void)
 {
 	struct fdr_instance *insp;
+	int all_ok = 1;
 
-	for (insp = fdr.instances; insp != NULL; insp = insp->next)
-		(void)fdr_trace_sample_loss(insp);
+	if (fdr.metrics == NULL)
+		return;
+
+	for (insp = fdr.instances; insp != NULL; insp = insp->next) {
+		if (!insp->has_saveto)
+			continue;
+		if (fdr_trace_sample_loss(insp) < 0)
+			all_ok = 0;
+	}
+	fdr_metrics_store_int(&fdr.metrics->loss_sampling_ok, all_ok);
 }
 
 /**

@@ -88,6 +88,7 @@ main(void)
 	char stats2[FDR_PATH_MAX];
 	struct fdr_instance instance;
 	struct fdr_item item;
+	uint64_t failures_before;
 	int attempt;
 
 	assert(mkdtemp(tempdir) != NULL);
@@ -191,6 +192,65 @@ main(void)
 	assert(unlink(stats1) == 0);
 	assert(rmdir(cpu1) == 0);
 	assert(fdr_trace_sample_loss(&instance) == 0);
+	fdr_trace_reset_loss_cache(&instance);
+
+	/* --- Test Suite 6: Sampling Failure Visibility & Sticky Readiness --- */
+	instance.has_saveto = 1;
+	fdr.instances = &instance;
+	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
+	fdr_metrics_store_int(&fdr.metrics->loss_sampling_ok, 0);
+	fdr_trace_sample_all_loss();
+	assert(fdr_metrics_load_int(&fdr.metrics->loss_sampling_ok) == 1);
+
+	/* Format-incompatible stats stay observable before readiness is degraded. */
+	make_control(stats0, "overrun: 1\ndropped events: 2\n");
+	failures_before =
+	    fdr_metrics_load_u64(&fdr.metrics->loss_sampling_failures);
+	assert(fdr_trace_sample_loss(&instance) == -1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->loss_sampling_failures) ==
+	    failures_before + 1);
+	assert(fdr_metrics_load_int(&fdr.metrics->loss_sampling_ok) == 0);
+	assert(instance.trace_sampling_failures == 1);
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 1);
+
+	assert(fdr_trace_sample_loss(&instance) == -1);
+	assert(instance.trace_sampling_failures == 2);
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 1);
+
+	assert(fdr_trace_sample_loss(&instance) == -1);
+	assert(instance.trace_sampling_failures == 3);
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
+
+	/* Recovery clears the gauge but not the unverified-interval readiness. */
+	make_control(stats0,
+	    "overrun: 1\ncommit overrun: 3\ndropped events: 2\n");
+	assert(fdr_trace_sample_loss(&instance) == 0);
+	assert(instance.trace_sampling_failures == 0);
+	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
+	fdr_trace_sample_all_loss();
+	assert(fdr_metrics_load_int(&fdr.metrics->loss_sampling_ok) == 1);
+
+	/* Unreadable stats are also counted instead of silently disabling checks. */
+	assert(unlink(stats0) == 0);
+	make_dir(stats0);
+	failures_before =
+	    fdr_metrics_load_u64(&fdr.metrics->loss_sampling_failures);
+	assert(fdr_trace_sample_loss(&instance) == -1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->loss_sampling_failures) ==
+	    failures_before + 1);
+	assert(instance.trace_sampling_failures == 1);
+	assert(fdr_metrics_load_int(&fdr.metrics->loss_sampling_ok) == 0);
+
+	/* Restoring the file proves the gauge can recover independently. */
+	assert(rmdir(stats0) == 0);
+	make_control(stats0,
+	    "overrun: 1\ncommit overrun: 3\ndropped events: 2\n");
+	assert(fdr_trace_sample_loss(&instance) == 0);
+	fdr_trace_sample_all_loss();
+	assert(fdr_metrics_load_int(&fdr.metrics->loss_sampling_ok) == 1);
+
+	fdr.instances = NULL;
+	instance.has_saveto = 0;
 	fdr_trace_reset_loss_cache(&instance);
 	fdr_metrics_destroy();
 

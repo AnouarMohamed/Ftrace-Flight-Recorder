@@ -139,6 +139,7 @@ struct fdr_instance {
 	int minfree;                         /**< Minimum percentage of free disk space required. */
 	int has_saveto;                      /**< Flag: 1 if this instance drains to a file, 0 if setup-only. */
 	int trace_loss_reported;             /**< Flag: 1 if loss warning has already been logged. */
+	uint64_t trace_sampling_failures;    /**< Consecutive failed kernel loss-sampling attempts. */
 };
 
 /**
@@ -157,6 +158,8 @@ struct fdr_metrics {
 	uint64_t trace_overruns;             /**< Cumulative kernel ring-buffer overwrite losses. */
 	uint64_t trace_dropped_events;       /**< Cumulative kernel tracefs dropped event losses. */
 	uint64_t trace_commit_overruns;      /**< Cumulative kernel nested write commit overruns. */
+	uint64_t loss_sampling_failures;     /**< Cumulative failed per-instance loss-sampling attempts. */
+	int loss_sampling_ok;                /**< Gauge: 1 when the latest sampling cycle succeeded. */
 	int instances;                       /**< Current gauge of configured tracefs instances. */
 	int workers_alive;                   /**< Current gauge of running child worker processes. */
 	int healthy;                         /**< Current readiness gauge (1 = ready, 0 = degraded/loss). */

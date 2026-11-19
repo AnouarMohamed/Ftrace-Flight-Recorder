@@ -85,14 +85,17 @@ The listener supports `GET` and has no authentication or TLS.
 |---|---|---|
 | `/healthz` | `200 ok` | The parent event loop is alive |
 | `/readyz` | `200 ready` | Current recorder state has no known integrity failure |
-| `/readyz` | `503 not ready` | A probe, collector, storage, write, or trace-loss failure was observed |
+| `/readyz` | `503 not ready` | A probe, collector, storage, write, trace-loss, or persistent loss-sampling failure was observed |
 | `/metrics` | `200` | Current Prometheus-format metrics |
 | Any other path | `404` | Unknown endpoint |
 
 Liveness is not evidence completeness. A healthy process can be unready. Any
 known storage drop now latches readiness false because the persisted evidence
-is incomplete. Monitor all integrity signals; readiness cannot prove that an
-unobserved loss did not occur.
+is incomplete. Three consecutive failed loss-sampling attempts also latch
+readiness false because the interval can no longer be shown to be loss-free.
+`fdr_loss_sampling_ok` recovers when sampling works again, but readiness stays
+false until a reload or restart. Monitor all integrity signals; readiness cannot
+prove that an unobserved loss did not occur.
 
 ## Metric reference
 
@@ -111,6 +114,8 @@ counters are cumulative for the current parent-process lifetime.
 | `fdr_trace_overruns_total` | Counter | Kernel ring-buffer overruns observed across instances and CPUs. Lost events cannot be recovered. |
 | `fdr_trace_dropped_events_total` | Counter | Events the kernel reports as dropped. Lost events cannot be recovered. |
 | `fdr_trace_commit_overruns_total` | Counter | Kernel commit overruns observed in tracefs statistics. Treat as incomplete evidence. |
+| `fdr_loss_sampling_failures_total` | Counter | Failed per-instance kernel loss-sampling attempts. Sampling is unavailable for that instance until the counter stops increasing and `fdr_loss_sampling_ok` returns to `1`. |
+| `fdr_loss_sampling_ok` | Gauge | `1` when the latest five-second cycle sampled every active capture instance successfully; `0` when any sample failed. It returns to `1` after sampling recovers, independently of latched readiness. |
 | `fdr_instances` | Gauge | Number of configured tracefs instances owned by the parent. |
 | `fdr_workers_alive` | Gauge | Workers currently alive. Persistent `saveto` instances normally have one worker each. |
 | `fdr_ready` | Gauge | `1` when ready, `0` after a known integrity or setup failure. |
@@ -124,6 +129,8 @@ increase(fdr_bytes_dropped_total[5m]) > 0
 increase(fdr_rotation_failures_total[5m]) > 0
 increase(fdr_write_errors_total[5m]) > 0
 increase(fdr_probe_failures_total[5m]) > 0
+increase(fdr_loss_sampling_failures_total[5m]) > 0
+fdr_loss_sampling_ok == 0
 increase(fdr_trace_overruns_total[5m])
   + increase(fdr_trace_dropped_events_total[5m])
   + increase(fdr_trace_commit_overruns_total[5m]) > 0
@@ -141,6 +148,7 @@ guide](../deploy/helm/fdr/README.md#prometheus-alerts-grafana-and-network-policy
 | Healthy but unready | Parent lives, but evidence is known to be degraded | Preserve evidence and metrics, then diagnose the changing counter or logs |
 | Unhealthy or process absent | Recorder is not being supervised successfully | Inspect the service manager, exit status, and previous logs |
 | Unready with storage drops increasing | Free-space protection or rotation is discarding output | Treat the capture as incomplete and repair storage before reloading |
+| Unready with `fdr_loss_sampling_ok` at `0` | Kernel loss statistics cannot be read or parsed | Inspect tracefs permissions and the kernel's `per_cpu/cpuN/stats` format; sampling recovery clears the gauge but not readiness |
 
 Readiness is intentionally sticky after a detected failure. A successful reload
 or restart creates a fresh health state, but it cannot repair the already
@@ -250,6 +258,7 @@ can enforce timeouts and record the exit.
 | `/readyz` returns 503 | Probe, collector, write, or trace-loss failure | Compare counters, inspect logs, and preserve evidence before resetting state |
 | Probe failures increase | Event is absent, filter is invalid, module failed, or access was denied | Inspect the running kernel's event `format` and `filter`; validate on every supported kernel |
 | Trace-loss counters increase | Event rate exceeded buffer or collector capacity | Preserve evidence; narrow probes, enlarge per-CPU buffers, remove CPU throttling, or improve storage after representative testing |
+| Loss-sampling failures increase | Tracefs stats are missing, unreadable, or use an unsupported format | Check tracefs mount and permissions; compare `per_cpu/cpuN/stats` on the running kernel; preserve logs before reloading |
 | Storage drops increase | `minfree` threshold was reached or rotation failed | Check filesystem capacity, inode availability, output path, and logrotate policy |
 | Write errors increase | Filesystem, permission, file-type, or I/O failure | Inspect logs and mount state; verify parent directory and regular-file target |
 | Worker count is low | Collector exited, or an instance intentionally omits `saveto` | Compare configuration to process logs; treat persistent collector loss as a fault |

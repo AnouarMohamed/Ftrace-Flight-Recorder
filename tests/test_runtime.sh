@@ -52,6 +52,10 @@ curl --fail --silent "http://127.0.0.1:$port/metrics" |
 curl --fail --silent "http://127.0.0.1:$port/metrics" |
     grep -q '^fdr_trace_dropped_events_total 0$'
 curl --fail --silent "http://127.0.0.1:$port/metrics" |
+    grep -q '^fdr_loss_sampling_failures_total 0$'
+curl --fail --silent "http://127.0.0.1:$port/metrics" |
+    grep -q '^fdr_loss_sampling_ok 1$'
+curl --fail --silent "http://127.0.0.1:$port/metrics" |
     grep -q '^fdr_rotation_failures_total 0$'
 
 kill -HUP "$pid"
