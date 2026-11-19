@@ -86,6 +86,8 @@ jobs:
       - name: Validate Kind lab assets
         run: |
           sh -n deploy/kind/lab.sh
+          sh -n tests/kernel-smoke.sh
+          sh -n tests/kubernetes-smoke.sh
           helm template fdr-lab deploy/helm/fdr --namespace fdr-lab \
             --values deploy/kind/fdr-values.yaml \
             > /tmp/fdr-kind-lab.yaml

@@ -30,6 +30,10 @@ Date: 2026-08-29
 - Metric batching is intentionally not enabled yet: shared counters remain
   current after every completed write until a bounded-time publication design
   is proven not to leave low-rate captures stale.
+- Phase 3 self-observation counters now expose read calls and bytes, write
+  calls, free-space checks, cumulative rotation duration, configured
+  trace-buffer bytes, and the selected collector backend. The CPU-count
+  benchmark matrix and optional total-memory sizing directive remain open.
 - An additive per-CPU probe captured both CPU-local text and raw pages on all
   four guest CPUs with zero kernel loss. The raw `splice()` path used 0.09 CPU
   seconds versus 1.65 for per-CPU text in focused runs, but it is not eligible
@@ -215,6 +219,9 @@ signals during rotation, filesystem exhaustion, symlinks, non-regular targets,
 and process termination at every transition.
 
 ## Phase 3: self-observation and server sizing
+
+Status: metrics implemented; CPU-count sizing and the optional total-memory
+directive remain open.
 
 Add counters only when they enable a concrete performance decision:
 

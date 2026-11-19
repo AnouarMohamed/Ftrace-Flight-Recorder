@@ -330,6 +330,43 @@ test_space_check_schedule(void)
 	assert(fdr_space_check_due(0, &last, &now) == 1);
 }
 
+/**
+ * test_trace_buffer_metric - Verifies configured buffer accounting across CPUs.
+ *
+ * Builds a temporary instance list with explicit and default buffer sizes,
+ * recomputes the shared gauge, and checks the expected per-CPU total.
+ */
+static void
+test_trace_buffer_metric(void)
+{
+	struct fdr_instance explicit_small;
+	struct fdr_instance explicit_large;
+	struct fdr_instance kernel_default;
+	long online_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+	uint64_t expected;
+
+	assert(online_cpus > 0);
+	fdr_instance_init(&explicit_small);
+	fdr_instance_init(&explicit_large);
+	fdr_instance_init(&kernel_default);
+	explicit_small.bufsize_kb = 1;
+	explicit_large.bufsize_kb = 64;
+
+	fdr.instances = NULL;
+	fdr.instance_count = 0;
+	fdr_instance_append(&explicit_small);
+	fdr_instance_append(&explicit_large);
+	fdr_instance_append(&kernel_default);
+	fdr_metrics_update_trace_buffer();
+
+	expected = (UINT64_C(1) + UINT64_C(64)) * 1024U *
+	    (uint64_t)online_cpus;
+	assert(fdr_metrics_load_u64(&fdr.metrics->trace_buffer_bytes) == expected);
+
+	fdr.instances = NULL;
+	fdr.instance_count = 0;
+}
+
 int
 main(void)
 {
@@ -362,12 +399,18 @@ main(void)
 	/* Initialize shared memory metrics */
 	fdr_metrics_init();
 	test_space_check_schedule();
+	test_trace_buffer_metric();
 
 	/* --- Test Suite 1: Disk Space Protection (minfree 100% forces drop) --- */
 	assert(fdr_harvest_run(&instance, &item) == 0);
 	assert(stat(logfile, &st) == 0 && st.st_size == 0);
 	assert(fdr_metrics_load_u64(&fdr.metrics->bytes_dropped) ==
 	    strlen(payload));
+	assert(fdr_metrics_load_u64(&fdr.metrics->read_calls) == 1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->read_bytes) ==
+	    strlen(payload));
+	assert(fdr_metrics_load_u64(&fdr.metrics->space_checks) == 1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->write_calls) == 0);
 	assert(fdr_metrics_load_int(&fdr.metrics->healthy) == 0);
 	fdr_metrics_store_int(&fdr.metrics->healthy, 1);
 
@@ -379,6 +422,11 @@ main(void)
 	    st.st_size == (off_t)strlen(payload));
 	assert(fdr_metrics_load_u64(&fdr.metrics->bytes_written) ==
 	    strlen(payload));
+	assert(fdr_metrics_load_u64(&fdr.metrics->read_calls) == 2);
+	assert(fdr_metrics_load_u64(&fdr.metrics->read_bytes) ==
+	    2U * strlen(payload));
+	assert(fdr_metrics_load_u64(&fdr.metrics->space_checks) == 2);
+	assert(fdr_metrics_load_u64(&fdr.metrics->write_calls) == 1);
 
 	/* --- Test Suite 3: Bounded Size Log Rotation --- */
 	write_trace(tracepipe, payload);
@@ -389,6 +437,9 @@ main(void)
 	assert(stat(backup, &st) == 0 &&
 	    st.st_size == (off_t)strlen(payload));
 	assert(fdr_metrics_load_u64(&fdr.metrics->rotations) == 1);
+	assert(fdr_metrics_load_u64(&fdr.metrics->read_calls) == 3);
+	assert(fdr_metrics_load_u64(&fdr.metrics->write_calls) == 2);
+	assert(fdr_metrics_load_u64(&fdr.metrics->rotation_duration_ns) > 0);
 
 	/* --- Test Suite 4 & 5: Asynchronous Reopening & Failure Recovery --- */
 	test_signal_reopen();
