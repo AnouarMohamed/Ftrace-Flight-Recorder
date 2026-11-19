@@ -9,6 +9,7 @@ report; it is not a universal compatibility claim.
 | Layer | Purpose | Kernel boundary |
 |---|---|---|
 | `make check` | Parser, lifecycle, HTTP, metrics, reload, rotation, and failure regressions using fake tracefs fixtures | Does not exercise a real kernel tracefs |
+| GitHub Actions kernel validation | Real host-kernel capture and a Kind deployment smoke test on disposable runners | Uses the runner kernel; not a compatibility matrix |
 | Kind observability lab | DaemonSet lifecycle, real capture, rollout, degraded readiness, recovery, rotation, Prometheus, alerts, and Grafana | Kind shares the host kernel |
 | Local-kernel KVM matrix | systemd lifecycle, real capture, and controlled trace loss on installed kernels | Disposable guest, independent boot |
 | Ubuntu cloud-image VM matrix | Distribution qualification and optional single-node k3s deployment | Disposable KVM guest |
@@ -28,6 +29,24 @@ VM before making kernel-compatibility or performance claims.
 The reports include environment details, metrics, logs, capture samples, and
 small screenshots or summaries where they improve reviewability. Large raw
 captures are intentionally not committed.
+
+## Automated CI validation
+
+The `Kernel validation` workflow runs on relevant pull requests, pushes to
+`main`, and a nightly schedule. It has two jobs:
+
+- `host-kernel-smoke` builds the project, runs the unit and runtime suites, then
+  runs `fdrd` against the runner's tracefs mount with a bounded scheduler
+  capture. It requires readiness, captured `sched_switch` records, a successful
+  rotation, zero write/rotation failures, and graceful instance cleanup.
+- `kubernetes-smoke` builds the container image, creates a disposable Kind
+  cluster, installs the Helm chart with a bounded scheduler capture, and checks
+  readiness, capture, rotation, and tracefs cleanup after uninstall.
+
+Both jobs upload logs and metrics as workflow artifacts. They use the runner
+kernel and share it with the Kind node, so they do not replace the VM matrix or
+prove multi-kernel, multi-node, SELinux, AppArmor, NetworkPolicy-plugin, or
+performance behavior. The full lab remains available for deeper local evidence.
 
 ## What has been demonstrated
 
