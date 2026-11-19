@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h>
 
 /*
  * Buffer & Path Capacity Limits
@@ -63,6 +64,12 @@
 
 /** Default percentage of free filesystem space required before dropping data. */
 #define FDR_MINFREE_DEFAULT      5
+
+/** Captured-byte interval between filesystem free-space checks (1 MiB). */
+#define FDR_SPACE_CHECK_BYTES   (1024U * 1024U)
+
+/** Maximum monotonic seconds between filesystem free-space checks. */
+#define FDR_SPACE_CHECK_SECONDS 5
 
 /*
  * Compiler Attributes & Printf Format Checking
@@ -148,6 +155,11 @@ struct fdr_instance {
  */
 struct fdr_metrics {
 	uint64_t bytes_written;              /**< Cumulative bytes successfully written to logs. */
+	uint64_t read_calls;                 /**< Cumulative successful collector read(2) calls. */
+	uint64_t read_bytes;                 /**< Cumulative bytes read from trace_pipe. */
+	uint64_t write_calls;                /**< Cumulative logical collector write attempts. */
+	uint64_t space_checks;               /**< Cumulative filesystem free-space checks. */
+	uint64_t rotation_duration_ns;       /**< Cumulative log rotation time in nanoseconds. */
 	uint64_t bytes_dropped;              /**< Cumulative bytes dropped due to minfree/rotation. */
 	uint64_t rotations;                  /**< Cumulative successful log file rotations. */
 	uint64_t rotation_failures;         /**< Cumulative log rotation execution failures. */
@@ -157,6 +169,7 @@ struct fdr_metrics {
 	uint64_t trace_overruns;             /**< Cumulative kernel ring-buffer overwrite losses. */
 	uint64_t trace_dropped_events;       /**< Cumulative kernel tracefs dropped event losses. */
 	uint64_t trace_commit_overruns;      /**< Cumulative kernel nested write commit overruns. */
+	uint64_t trace_buffer_bytes;         /**< Configured per-CPU buffer bytes across online CPUs. */
 	int instances;                       /**< Current gauge of configured tracefs instances. */
 	int workers_alive;                   /**< Current gauge of running child worker processes. */
 	int healthy;                         /**< Current readiness gauge (1 = ready, 0 = degraded/loss). */
@@ -274,6 +287,12 @@ void fdr_metrics_add(uint64_t *counter, uint64_t delta);
 /** @brief Atomically loads a 64-bit metric counter using relaxed memory order. */
 uint64_t fdr_metrics_load_u64(const uint64_t *counter);
 
+/** @brief Atomically stores a 64-bit metric gauge using relaxed memory order. */
+void fdr_metrics_store_u64(uint64_t *value, uint64_t new_value);
+
+/** @brief Recomputes the configured trace-buffer byte gauge from loaded instances. */
+void fdr_metrics_update_trace_buffer(void);
+
 /** @brief Atomically loads an integer metric gauge using relaxed memory order. */
 int fdr_metrics_load_int(const int *value);
 
@@ -327,6 +346,10 @@ void fdr_trace_sample_all_loss(void);
 
 /** @brief Main data-plane worker loop: continuously drains trace_pipe to disk. */
 int fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item);
+
+/** @brief Returns 1 when the byte budget or monotonic interval requires a check. */
+int fdr_space_check_due(uint64_t bytes_since_check,
+    const struct timespec *last_check, const struct timespec *now);
 
 /*
  * Process Supervision & Signals (process.c)

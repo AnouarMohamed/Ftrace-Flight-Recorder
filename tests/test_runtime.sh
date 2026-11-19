@@ -45,14 +45,20 @@ done
 
 curl --fail --silent "http://127.0.0.1:$port/readyz" |
     grep -q '^ready$'
-curl --fail --silent "http://127.0.0.1:$port/metrics" |
-    grep -q '^fdr_instances 1$'
-curl --fail --silent "http://127.0.0.1:$port/metrics" |
-    grep -q '^fdr_trace_overruns_total 0$'
-curl --fail --silent "http://127.0.0.1:$port/metrics" |
-    grep -q '^fdr_trace_dropped_events_total 0$'
-curl --fail --silent "http://127.0.0.1:$port/metrics" |
-    grep -q '^fdr_rotation_failures_total 0$'
+metrics=$(curl --fail --silent "http://127.0.0.1:$port/metrics")
+printf '%s\n' "$metrics" | grep -q '^fdr_instances 1$'
+printf '%s\n' "$metrics" | grep -q '^fdr_trace_overruns_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_trace_dropped_events_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_rotation_failures_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_read_calls_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_read_bytes_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_write_calls_total 0$'
+printf '%s\n' "$metrics" | grep -q '^fdr_space_checks_total 0$'
+printf '%s\n' "$metrics" |
+    grep -q '^fdr_rotation_duration_seconds_total 0.000000000$'
+printf '%s\n' "$metrics" | grep -q '^fdr_trace_buffer_bytes 0$'
+printf '%s\n' "$metrics" |
+    grep -q '^fdr_collector_info{backend="text",fallback="none"} 1$'
 
 kill -HUP "$pid"
 attempt=0

@@ -95,6 +95,65 @@ fdr_metrics_load_u64(const uint64_t *counter)
 }
 
 /**
+ * fdr_metrics_store_u64 - Atomically sets a 64-bit metric gauge.
+ *
+ * @value: Pointer to uint64_t gauge in shared memory.
+ * @new_value: Value to store.
+ */
+void
+fdr_metrics_store_u64(uint64_t *value, uint64_t new_value)
+{
+	__atomic_store_n(value, new_value, __ATOMIC_RELAXED);
+}
+
+/**
+ * fdr_metrics_update_trace_buffer - Recomputes the configured trace-buffer gauge.
+ *
+ * Sums `bufsize_kb * 1024 * online_cpus` for every instance with an explicit
+ * buffer size. Instances using the kernel default (zero) are intentionally not
+ * estimated because their effective per-CPU allocation is kernel-dependent.
+ * The result saturates at UINT64_MAX on overflow.
+ */
+void
+fdr_metrics_update_trace_buffer(void)
+{
+	const struct fdr_instance *insp;
+	uint64_t cpu_count;
+	uint64_t total = 0;
+	long online_cpus;
+
+	if (fdr.metrics == NULL)
+		return;
+
+	online_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+	if (online_cpus < 1) {
+		fdr_metrics_store_u64(&fdr.metrics->trace_buffer_bytes, 0);
+		return;
+	}
+	cpu_count = (uint64_t)online_cpus;
+
+	for (insp = fdr.instances; insp != NULL; insp = insp->next) {
+		uint64_t bytes;
+
+		if (insp->bufsize_kb == 0)
+			continue;
+		if ((uint64_t)insp->bufsize_kb >
+		    UINT64_MAX / 1024U / cpu_count) {
+			total = UINT64_MAX;
+			break;
+		}
+		bytes = (uint64_t)insp->bufsize_kb * 1024U * cpu_count;
+		if (UINT64_MAX - total < bytes) {
+			total = UINT64_MAX;
+			break;
+		}
+		total += bytes;
+	}
+
+	fdr_metrics_store_u64(&fdr.metrics->trace_buffer_bytes, total);
+}
+
+/**
  * fdr_metrics_load_int - Atomically loads a 32-bit integer metric gauge.
  *
  * @value: Pointer to int gauge in shared memory.

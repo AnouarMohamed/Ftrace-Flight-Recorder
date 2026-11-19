@@ -135,8 +135,11 @@ Sets the minimum available-space threshold for the filesystem containing the
 
 When available space is at or below the threshold, the collector continues
 reading the kernel trace pipe but discards those bytes instead of filling the
-filesystem. Discarded bytes increase `fdr_bytes_dropped_total`. The check is
-periodic, so this is a protection mechanism rather than an exact disk quota.
+filesystem. Discarded bytes increase `fdr_bytes_dropped_total`. Checks run on
+the earlier of 1 MiB of reads or five seconds of monotonic time, and
+immediately after reopen or rotation. The time budget is evaluated when the
+next trace block arrives. This is a protection mechanism rather than an exact
+disk quota.
 
 ### `saveto absolute-path [maximum-size]`
 
