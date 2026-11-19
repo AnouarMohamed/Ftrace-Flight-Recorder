@@ -99,6 +99,7 @@ check: fdrd $(TEST_BINS)
 	$(BUILD_DIR)/test_config
 	$(BUILD_DIR)/test_harvest
 	$(BUILD_DIR)/test_trace
+	tests/test_preflight.sh deploy/kubernetes/preflight.sh
 	tests/test_runtime.sh ./fdrd
 
 benchmark: $(BENCH_BINS)

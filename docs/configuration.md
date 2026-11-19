@@ -27,6 +27,11 @@ Parse-only validation does not confirm that kernel modules, events, filters,
 tracefs permissions, output directories, or free-space conditions are valid at
 runtime.
 
+Kubernetes deployments also run the preflight script before the daemon starts.
+It checks the host tracefs mount, loads configured modules, and verifies that
+every configured event or subsystem exists on the node before allowing the
+collector to start.
+
 ## Directives
 
 | Directive | Required | Purpose |
