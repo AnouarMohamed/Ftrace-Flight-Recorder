@@ -8,8 +8,9 @@ Date: 2026-08-29
 - Phase 0 has a deterministic 64 MiB collector benchmark with byte-for-byte
   output and metric checks.
 - The first Phase 1 tranche caches bounded-output size, schedules storage
-  checks by captured bytes, and replaces formatted per-CPU loss parsing with
-  bounded direct reads.
+  checks by the earlier of captured bytes or a five-second monotonic interval,
+  rechecks after reopen and rotation, and replaces formatted per-CPU loss
+  parsing with bounded direct reads.
 - A regular-file microbenchmark measured 53.3% lower median process CPU with
   exact output, but it does not exercise the kernel text formatter and is not
   accepted as a real FDR performance result. See the corrected
@@ -29,6 +30,10 @@ Date: 2026-08-29
 - Metric batching is intentionally not enabled yet: shared counters remain
   current after every completed write until a bounded-time publication design
   is proven not to leave low-rate captures stale.
+- Phase 3 self-observation counters now expose read calls and bytes, write
+  calls, free-space checks, cumulative rotation duration, configured
+  trace-buffer bytes, and the selected collector backend. The CPU-count
+  benchmark matrix and optional total-memory sizing directive remain open.
 - An additive per-CPU probe captured both CPU-local text and raw pages on all
   four guest CPUs with zero kernel loss. The raw `splice()` path used 0.09 CPU
   seconds versus 1.65 for per-CPU text in focused runs, but it is not eligible
@@ -183,6 +188,11 @@ Check `fstatvfs()` after the earlier of a monotonic interval or a byte budget.
 This keeps protection responsive at high throughput without checking
 excessively at low throughput. Recheck immediately after reopen and rotation.
 
+Implemented with a 1 MiB byte budget, a five-second monotonic interval, and
+unconditional checks after a successful reopen or rotation. Time is evaluated
+when the next trace block arrives, so a fully idle capture defers the check
+until data exists to protect.
+
 ### 5. Optimize loss-stat sampling
 
 Discover per-CPU stats paths once per instance. Use bounded direct reads and
@@ -209,6 +219,9 @@ signals during rotation, filesystem exhaustion, symlinks, non-regular targets,
 and process termination at every transition.
 
 ## Phase 3: self-observation and server sizing
+
+Status: metrics implemented; CPU-count sizing and the optional total-memory
+directive remain open.
 
 Add counters only when they enable a concrete performance decision:
 
@@ -286,7 +299,7 @@ without snapshot support and for operators who require it.
 1. `bench: add deterministic collector performance harness`
 2. `perf: cache output size and batch shared byte metrics`
 3. `perf: benchmark and tune trace-pipe read batching`
-4. `perf: schedule free-space checks by time and volume`
+4. `perf: schedule free-space checks by time and volume` (implemented)
 5. `perf: cache per-CPU integrity sampling state` (implemented; real high-core
    qualification remains open)
 6. `perf: decouple retention work from capture rotation`

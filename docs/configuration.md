@@ -27,6 +27,11 @@ Parse-only validation does not confirm that kernel modules, events, filters,
 tracefs permissions, output directories, or free-space conditions are valid at
 runtime.
 
+Kubernetes deployments also run the preflight script before the daemon starts.
+It checks the host tracefs mount, loads configured modules, and verifies that
+every configured event or subsystem exists on the node before allowing the
+collector to start.
+
 ## Directives
 
 | Directive | Required | Purpose |
@@ -130,8 +135,11 @@ Sets the minimum available-space threshold for the filesystem containing the
 
 When available space is at or below the threshold, the collector continues
 reading the kernel trace pipe but discards those bytes instead of filling the
-filesystem. Discarded bytes increase `fdr_bytes_dropped_total`. The check is
-periodic, so this is a protection mechanism rather than an exact disk quota.
+filesystem. Discarded bytes increase `fdr_bytes_dropped_total`. Checks run on
+the earlier of 1 MiB of reads or five seconds of monotonic time, and
+immediately after reopen or rotation. The time budget is evaluated when the
+next trace block arrives. This is a protection mechanism rather than an exact
+disk quota.
 
 ### `saveto absolute-path [maximum-size]`
 

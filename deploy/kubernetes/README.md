@@ -45,9 +45,11 @@ updates the pod template and rolls the DaemonSet automatically. Readiness stays
 false if a configured probe cannot be applied. A persistent collector failure
 terminates the container so Kubernetes restarts it.
 
-Before startup, the <code>tracefs-preflight</code> init container verifies that
-the hostPath is a writable tracefs mount with an <code>instances</code>
-directory. Diagnose a failed preflight with:
+Before startup, the <code>tracefs-preflight</code> init container checks that the
+hostPath is a writable tracefs mount, or a legacy debugfs tracing path, with an
+<code>instances</code> directory. It also validates the configuration syntax,
+loads configured modules, and verifies every configured event on the node.
+Diagnose a failed preflight with:
 
 ~~~sh
 kubectl -n fdr-system get pods
@@ -78,6 +80,12 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: tracefs-preflight
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
       containers:
         - name: fdrd
           volumeMounts:
@@ -91,8 +99,10 @@ spec:
             type: Directory
 ~~~
 
-Reference that patch from the overlay's <code>kustomization.yaml</code>; do not
-add it to the shared base unless every deployment requires module loading.
+The init-container mount lets preflight load the module before checking events
+that depend on it. Reference that patch from the overlay's
+<code>kustomization.yaml</code>; do not add it to the shared base unless every
+deployment requires module loading.
 
 ## Observe
 
@@ -113,8 +123,11 @@ collection commands, see the [operations guide](../../docs/operations.md).
 
 The pod must be privileged to create trace instances and enable host probes.
 Anyone able to change its image, arguments, or ConfigMap effectively controls a
-root process with host-kernel access. Restrict RBAC on the namespace and review
-enabled probes for performance and data sensitivity.
+root process with host-kernel access. Use namespace-scoped RBAC for rollout and
+probe changes; see the [security guide](../../SECURITY.md#kubernetes-rbac).
+Module loading is omitted from the base manifest, and admission rejection is
+diagnosed through namespace events rather than collector logs; see the
+[admission guidance](../../SECURITY.md#pod-security-and-admission).
 
 The Kubernetes hardening plan—including immutable images, safer scheduling,
 tracefs preflight, metrics discovery, network policy, and real-cluster smoke

@@ -14,8 +14,10 @@ All notable changes to this project are documented here. The format follows
   recorder cannot silently present known-incomplete evidence as ready.
 - Add optional Helm `PodMonitor`, six evidence-integrity alert rules, a compact
   Grafana dashboard, and an ingress `NetworkPolicy`.
-- Add a tracefs preflight init container with actionable diagnostics for
-  Kubernetes startup failures.
+- Add a tracefs preflight init container that validates the mount type and
+  options, configuration syntax, required modules, and configured tracepoints
+  before Kubernetes starts the collector, including legacy debugfs tracing
+  paths.
 - Add a pinned Kind observability lab covering real capture, Prometheus
   discovery, Grafana states, configuration rollout, collector recovery,
   bounded rotation, and tracefs cleanup.
@@ -31,6 +33,9 @@ All notable changes to this project are documented here. The format follows
   reproducible qualification requirements.
 - Add a disposable per-CPU backend probe for CPU-local text reads and raw-page
   `splice()` extraction without changing the production text backend.
+- Export collector self-observation metrics for read calls and bytes, write
+  calls, free-space checks, cumulative rotation duration, configured
+  trace-buffer bytes, and the selected backend.
 
 ### Changed
 
@@ -42,6 +47,9 @@ All notable changes to this project are documented here. The format follows
   and remove the default CPU limit to avoid collector throttling.
 - Make the host `/lib/modules` mount opt-in for configurations that actually
   use `modprobe`.
+- Schedule free-space checks by the earlier of a 1 MiB read budget or a
+  five-second monotonic interval, and recheck immediately after reopen or
+  successful rotation.
 - Harden CI checks for rendered Kubernetes invariants, strict Helm linting,
   dashboard JSON, shell scripts, and the lab automation.
 - Advance the Helm chart to version 0.5.0 for the new observability and
@@ -61,7 +69,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 
-- Record the pinned release digest and digest-based rollback commands.
+- Add a Kubernetes threat model with namespace-scoped RBAC, reduced module
+  exposure, and Pod Security admission failure guidance.
 - Add a milestone-based product and Kubernetes hardening roadmap.
 - Document the privileged host-kernel security boundary, module-loading
   tradeoffs, monitoring exposure, and validation limits.
