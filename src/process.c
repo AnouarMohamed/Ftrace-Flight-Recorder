@@ -146,6 +146,7 @@ fdr_run_instance(struct fdr_instance *insp)
 			saveto = item;
 			break;
 		case FDR_ITEM_MINFREE:
+		case FDR_ITEM_RETENTION:
 			break;
 		}
 	}

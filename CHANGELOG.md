@@ -34,6 +34,9 @@ All notable changes to this project are documented here. The format follows
 - Export collector self-observation metrics for read calls and bytes, write
   calls, free-space checks, cumulative rotation duration, configured
   trace-buffer bytes, and the selected backend.
+- Add an opt-in `retention` helper that runs after an atomic seal and reopen so
+  collection resumes before slow retention work, publishes only complete helper
+  output, and exposes failures through `fdr_retention_failures_total`.
 
 ### Changed
 
@@ -44,6 +47,9 @@ All notable changes to this project are documented here. The format follows
   and remove the default CPU limit to avoid collector throttling.
 - Make the host `/lib/modules` mount opt-in for configurations that actually
   use `modprobe`.
+- Schedule free-space checks by the earlier of a 1 MiB read budget or a
+  five-second monotonic interval, and recheck immediately after reopen or
+  successful rotation.
 - Harden CI checks for rendered Kubernetes invariants, strict Helm linting,
   dashboard JSON, shell scripts, and the lab automation.
 - Advance the Helm chart to version 0.5.0 for the new observability and
@@ -55,6 +61,8 @@ All notable changes to this project are documented here. The format follows
   the text format, append behavior, size limit, and drop accounting intact.
 - Pace failed rotation retries, expose a dedicated failure counter, degrade
   readiness on every known storage drop, and resume capture after recovery.
+- Rotate full generations through an internal atomic seal and reopen when a
+  retention helper is configured, keeping logrotate as the compatibility path.
 - Remove a redundant destination metadata lookup from fallback rotation.
 - Parse per-CPU trace-loss statistics with bounded direct reads and checked
   integer conversion instead of formatted stdio scanning.
@@ -94,6 +102,9 @@ All notable changes to this project are documented here. The format follows
   all four CPUs with zero trace loss. Raw collector CPU was 0.09 seconds versus
   1.65 seconds for CPU-local text, but raw remains experimental because the
   output is not yet a standard, decoder-qualified `trace.dat` archive.
+- Add deterministic tests proving that collection continues while a retention
+  helper is blocked, and that helper failures leave sealed and partial
+  generations distinguishable from completed output.
 
 ## [1.4.0] - 2026-08-23
 

@@ -92,6 +92,13 @@ main(void)
 	/* Rejection of duplicate saveto directives */
 	assert(fdr_config_parse_line_test(&instance,
 	    "saveto /tmp/second.log") != 0);
+
+	/* Optional asynchronous retention helper */
+	assert(fdr_config_parse_line_test(&instance,
+	    "retention /usr/local/bin/fdr-retain") == 0);
+	assert(strcmp(instance.retention, "/usr/local/bin/fdr-retain") == 0);
+	assert(fdr_config_parse_line_test(&instance,
+	    "retention /usr/local/bin/other") != 0);
 	free_items(&instance);
 
 	/* --- Test Suite 3: Invalid Syntax & Security Violations --- */
@@ -132,6 +139,13 @@ main(void)
 
 	/* Rejection: shell metacharacters in modprobe */
 	assert(fdr_config_parse_line_test(&invalid, "modprobe x;touch") != 0);
+
+	/* Rejection: retention helper must be an absolute, non-traversing path */
+	assert(fdr_config_parse_line_test(&invalid, "retention helper") != 0);
+	assert(fdr_config_parse_line_test(&invalid,
+	    "retention /usr/../bin/helper") != 0);
+	assert(fdr_config_parse_line_test(&invalid,
+	    "retention /usr/local/bin/helper extra") != 0);
 	free_items(&invalid);
 
 	puts("configuration tests passed");

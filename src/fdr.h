@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h>
 
 /*
  * Buffer & Path Capacity Limits
@@ -63,6 +64,12 @@
 
 /** Default percentage of free filesystem space required before dropping data. */
 #define FDR_MINFREE_DEFAULT      5
+
+/** Captured-byte interval between filesystem free-space checks (1 MiB). */
+#define FDR_SPACE_CHECK_BYTES   (1024U * 1024U)
+
+/** Maximum monotonic seconds between filesystem free-space checks. */
+#define FDR_SPACE_CHECK_SECONDS 5
 
 /*
  * Compiler Attributes & Printf Format Checking
@@ -103,6 +110,7 @@ enum fdr_item_type {
 	FDR_ITEM_DISABLE,      /**< 'disable <subsystem/event>': Disables a tracepoint. */
 	FDR_ITEM_SAVETO,       /**< 'saveto <path> [maxsize]': Drains trace_pipe to disk. */
 	FDR_ITEM_MINFREE,      /**< 'minfree <percentage>': Minimum free disk space threshold. */
+	FDR_ITEM_RETENTION,    /**< 'retention <path>': Asynchronous retention helper executable. */
 };
 
 /**
@@ -129,6 +137,7 @@ struct fdr_instance {
 	char dname[FDR_PATH_MAX];            /**< Full tracefs directory path (/sys/kernel/tracing/instances/<iname>). */
 	uint64_t bufsize_kb;                 /**< Per-CPU buffer size in KiB (0 = kernel default). */
 	uint64_t maxsize;                    /**< Maximum log file size before rotation (UINT64_MAX = unlimited). */
+	char retention[FDR_PATH_MAX];        /**< Optional asynchronous retention helper executable. */
 	uint64_t last_trace_overruns;        /**< Previous sampled ring-buffer overrun counter. */
 	uint64_t last_trace_dropped;         /**< Previous sampled tracefs dropped-events counter. */
 	uint64_t last_trace_commit_overruns; /**< Previous sampled commit overrun counter. */
@@ -156,6 +165,7 @@ struct fdr_metrics {
 	uint64_t bytes_dropped;              /**< Cumulative bytes dropped due to minfree/rotation. */
 	uint64_t rotations;                  /**< Cumulative successful log file rotations. */
 	uint64_t rotation_failures;         /**< Cumulative log rotation execution failures. */
+	uint64_t retention_failures;        /**< Cumulative asynchronous retention helper failures. */
 	uint64_t probe_failures;             /**< Cumulative tracepoint/filter configuration failures. */
 	uint64_t write_errors;               /**< Cumulative write(2) or filesystem errors. */
 	uint64_t reloads;                    /**< Cumulative successful SIGHUP configuration reloads. */
@@ -339,6 +349,10 @@ void fdr_trace_sample_all_loss(void);
 
 /** @brief Main data-plane worker loop: continuously drains trace_pipe to disk. */
 int fdr_harvest_run(struct fdr_instance *insp, const struct fdr_item *item);
+
+/** @brief Returns 1 when the byte budget or monotonic interval requires a check. */
+int fdr_space_check_due(uint64_t bytes_since_check,
+    const struct timespec *last_check, const struct timespec *now);
 
 /*
  * Process Supervision & Signals (process.c)

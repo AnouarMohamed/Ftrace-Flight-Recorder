@@ -72,8 +72,11 @@ Implementation status in the current development tree:
 - [x] Validate trace-loss behavior under controlled load.
 - [x] Add the deterministic collector benchmark and land the first compatible
       text hot-path optimization with exact-output evidence.
-- [ ] Complete the real-kernel performance matrix, rotation decoupling, and
-      high-core topology work before changing production sizing guidance.
+- [x] Add an opt-in asynchronous rotation and retention path with explicit
+      helper-failure visibility.
+- [ ] Validate the asynchronous rotation path on the real-kernel matrix and
+      complete high-core topology work before changing production sizing
+      guidance.
 
 Keep the current Grafana dashboard scoped to validation and operations until
 milestones 1 through 3 are complete. Do not begin a Kubernetes operator or
