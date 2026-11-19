@@ -110,6 +110,7 @@ enum fdr_item_type {
 	FDR_ITEM_DISABLE,      /**< 'disable <subsystem/event>': Disables a tracepoint. */
 	FDR_ITEM_SAVETO,       /**< 'saveto <path> [maxsize]': Drains trace_pipe to disk. */
 	FDR_ITEM_MINFREE,      /**< 'minfree <percentage>': Minimum free disk space threshold. */
+	FDR_ITEM_RETENTION,    /**< 'retention <path>': Asynchronous retention helper executable. */
 };
 
 /**
@@ -136,6 +137,7 @@ struct fdr_instance {
 	char dname[FDR_PATH_MAX];            /**< Full tracefs directory path (/sys/kernel/tracing/instances/<iname>). */
 	uint64_t bufsize_kb;                 /**< Per-CPU buffer size in KiB (0 = kernel default). */
 	uint64_t maxsize;                    /**< Maximum log file size before rotation (UINT64_MAX = unlimited). */
+	char retention[FDR_PATH_MAX];        /**< Optional asynchronous retention helper executable. */
 	uint64_t last_trace_overruns;        /**< Previous sampled ring-buffer overrun counter. */
 	uint64_t last_trace_dropped;         /**< Previous sampled tracefs dropped-events counter. */
 	uint64_t last_trace_commit_overruns; /**< Previous sampled commit overrun counter. */
@@ -163,6 +165,7 @@ struct fdr_metrics {
 	uint64_t bytes_dropped;              /**< Cumulative bytes dropped due to minfree/rotation. */
 	uint64_t rotations;                  /**< Cumulative successful log file rotations. */
 	uint64_t rotation_failures;         /**< Cumulative log rotation execution failures. */
+	uint64_t retention_failures;        /**< Cumulative asynchronous retention helper failures. */
 	uint64_t probe_failures;             /**< Cumulative tracepoint/filter configuration failures. */
 	uint64_t write_errors;               /**< Cumulative write(2) or filesystem errors. */
 	uint64_t reloads;                    /**< Cumulative successful SIGHUP configuration reloads. */

@@ -244,6 +244,7 @@ fdr_parse_error(const char *fpath, int line, const char *message)
  * - `disable <subsystem/event>`: Disables tracepoint or whole subsystem.
  * - `saveto <path> [maxsize]`: Sets output destination and bounded rotation size.
  * - `minfree <percentage>`: Sets filesystem free space drop threshold (1-100%).
+ * - `retention <path>`: Sets an asynchronous post-rotation retention helper.
  *
  * @insp: Target instance being constructed.
  * @fpath: File path of configuration file.
@@ -389,6 +390,34 @@ fdr_parse_line(struct fdr_instance *insp, const char *fpath, int line,
 		}
 		item->type = FDR_ITEM_MINFREE;
 		insp->minfree = (int)value;
+	} else if (strcmp(verb, "retention") == 0) {
+		if (*option != '\0') {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "retention accepts exactly one value");
+		}
+		if (target[0] != '/') {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "retention helper path must be absolute");
+		}
+		if (!fdr_valid_saveto_path(target)) {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "retention helper path must not contain '..'");
+		}
+		if (insp->retention[0] != '\0') {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "only one retention directive is allowed");
+		}
+		item->type = FDR_ITEM_RETENTION;
+		if (fdr_copy_field(insp->retention, sizeof(insp->retention),
+		    target) != 0) {
+			free(item);
+			return fdr_parse_error(fpath, line,
+			    "retention helper path is too long");
+		}
 	} else {
 		free(item);
 		return fdr_parse_error(fpath, line, "unknown directive");

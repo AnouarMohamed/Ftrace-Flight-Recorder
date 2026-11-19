@@ -252,6 +252,9 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_rotation_failures_total Failed log rotation attempts\n"
 		    "# TYPE fdr_rotation_failures_total counter\n"
 		    "fdr_rotation_failures_total %" PRIu64 "\n"
+		    "# HELP fdr_retention_failures_total Async retention helper failures\n"
+		    "# TYPE fdr_retention_failures_total counter\n"
+		    "fdr_retention_failures_total %" PRIu64 "\n"
 		    "# HELP fdr_probe_failures_total Probe configuration failures\n"
 		    "# TYPE fdr_probe_failures_total counter\n"
 		    "fdr_probe_failures_total %" PRIu64 "\n"
@@ -295,6 +298,7 @@ fdr_http_handle(int cfd)
 		    m ? fdr_metrics_load_u64(&m->bytes_dropped) : 0,
 		    m ? fdr_metrics_load_u64(&m->rotations) : 0,
 		    m ? fdr_metrics_load_u64(&m->rotation_failures) : 0,
+		    m ? fdr_metrics_load_u64(&m->retention_failures) : 0,
 		    m ? fdr_metrics_load_u64(&m->probe_failures) : 0,
 		    m ? fdr_metrics_load_u64(&m->write_errors) : 0,
 		    m ? fdr_metrics_load_u64(&m->reloads) : 0,

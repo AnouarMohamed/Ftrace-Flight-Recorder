@@ -39,8 +39,12 @@ Date: 2026-08-29
   seconds versus 1.65 for per-CPU text in focused runs, but it is not eligible
   for production until it emits and decodes a standard interoperable archive.
   See the [backend probe report](benchmarks/2026-08-30-per-cpu-backend.md).
-- Rotation decoupling, broader kernel/workload and real high-core
-  qualification, raw capture, and snapshot mode remain open phases below.
+- Rotation decoupling is implemented as an opt-in `retention` helper. FDR
+  seals the full generation atomically, opens and validates the new active
+  file, and resumes collection before the supervised helper runs. Logrotate
+  remains the synchronous compatibility path. Real-kernel validation of the
+  asynchronous mode, broader kernel/workload qualification, raw capture, and
+  snapshot mode remain open.
 
 ## Objective
 
@@ -202,21 +206,28 @@ a slower topology interval. Keep the five-second loss-detection objective.
 
 ## Phase 2: reduce rotation stalls
 
-The collector must resume writing a new bounded file before slow retention
-work such as compression. Implement an internal fast path that:
+Status: opt-in asynchronous path implemented; real-kernel qualification and
+default promotion remain open.
 
-1. seals or renames the full generation atomically;
+The collector must resume writing a new bounded file before slow retention
+work such as compression. The implemented internal fast path:
+
+1. seals the full generation atomically as `<path>.pending.<pid>.<sequence>`;
 2. opens and validates the new mode-0600 destination;
 3. resumes collection;
-4. delegates optional retention processing to a supervised helper.
+4. delegates optional retention processing to a supervised helper configured
+   with `retention`, and publishes only a complete helper output.
 
-Keep existing logrotate behavior as a compatibility mode until the asynchronous
-path proves equivalent. A helper failure must be visible but must not make a
-partial generation appear complete.
+Existing logrotate behavior remains the compatibility mode until the
+asynchronous path proves equivalent. A helper failure increments
+`fdr_retention_failures_total` and leaves the sealed generation and partial
+output distinguishable from completed evidence.
 
-Rotation tests must cover rename failures, reopen failures, helper failure,
-signals during rotation, filesystem exhaustion, symlinks, non-regular targets,
-and process termination at every transition.
+Deterministic tests cover the delayed-helper path, helper failure, rename
+failure and retry pacing, free-space drops, signal reopen, and collection that
+continues while a helper is blocked. Real-kernel validation must still cover
+filesystem exhaustion, symlink and non-regular targets during rotation,
+process termination at every transition, and sustained rotation under load.
 
 ## Phase 3: self-observation and server sizing
 
@@ -302,7 +313,8 @@ without snapshot support and for operators who require it.
 4. `perf: schedule free-space checks by time and volume` (implemented)
 5. `perf: cache per-CPU integrity sampling state` (implemented; real high-core
    qualification remains open)
-6. `perf: decouple retention work from capture rotation`
+6. `perf: decouple retention work from capture rotation` (implemented as an
+   opt-in helper; real-kernel qualification remains open)
 7. `capture: prototype interoperable raw splice backend`
 8. `capture: add snapshot-triggered recording`
 

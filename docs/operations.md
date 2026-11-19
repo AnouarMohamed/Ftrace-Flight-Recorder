@@ -110,6 +110,7 @@ counters are cumulative for the current parent-process lifetime.
 | `fdr_bytes_dropped_total` | Counter | Bytes discarded by free-space protection or a failed rotation. Any increase means incomplete file evidence; investigate disk capacity and rotation. |
 | `fdr_rotations_total` | Counter | Successful bounded-file rotations. Confirm retention behaves as intended. |
 | `fdr_rotation_failures_total` | Counter | Rotation attempts that failed before a retry. An increase makes readiness false; inspect permissions, free space, and logrotate. |
+| `fdr_retention_failures_total` | Counter | Asynchronous retention helpers that failed or did not produce a complete output. Inspect the logged sealed generation and pending partial path. |
 | `fdr_probe_failures_total` | Counter | Events, filters, or modules that could not be configured. An increase makes readiness false. |
 | `fdr_write_errors_total` | Counter | Capture write or collector errors. Preserve logs and storage state immediately. |
 | `fdr_reloads_total` | Counter | Accepted `SIGHUP` configuration reloads. This does not count rejected syntax. |
@@ -225,9 +226,11 @@ and the bundled `FDRWorkerMissing` alert must be adjusted or disabled.
 ## File rotation
 
 When `saveto` has a maximum size, FDR rotates internally before a write would
-cross the limit. It uses `/etc/logrotate.d/<instance>` when that file is
-regular; otherwise it preserves one fallback generation as `<capture>.1`.
-See [the exact rotation behavior](configuration.md#saveto-absolute-path-maximum-size).
+cross the limit. With a configured `retention` helper it seals the generation
+and resumes capture before the helper runs; otherwise it uses
+`/etc/logrotate.d/<instance>` when that file is regular, or preserves one
+fallback generation as `<capture>.1`. See
+[the exact rotation behavior](configuration.md#saveto-absolute-path-maximum-size).
 
 For an external rotation process, move the current file first and then tell all
 FDR processes to reopen it:

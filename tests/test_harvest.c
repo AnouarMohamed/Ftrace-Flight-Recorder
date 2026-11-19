@@ -17,6 +17,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,6 +121,304 @@ wait_for_counter(const uint64_t *counter, uint64_t minimum)
 		usleep(10000);
 	}
 	assert(!"timed out waiting for collector metric");
+}
+
+/**
+ * write_executable - Writes a temporary executable helper script.
+ *
+ * @path: Destination path.
+ * @content: Script contents.
+ */
+static void
+write_executable(const char *path, const char *content)
+{
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0700);
+
+	assert(fd >= 0);
+	assert(fdr_write_all(fd, content, strlen(content)) == 0);
+	assert(close(fd) == 0);
+	assert(chmod(path, 0700) == 0);
+}
+
+/**
+ * find_glob - Finds the first matching path, optionally accepting partial output.
+ *
+ * @pattern: Glob pattern to evaluate.
+ * @allow_partial: Whether names ending in `.partial` are acceptable.
+ * @match: Output buffer for the selected path.
+ * @matchsz: Size of the output buffer.
+ * Return: 1 when a matching path was found, 0 otherwise.
+ */
+static int
+find_glob(const char *pattern, int allow_partial, char *match, size_t matchsz)
+{
+	glob_t matches;
+	size_t i;
+	int found = 0;
+
+	memset(&matches, 0, sizeof(matches));
+	if (glob(pattern, 0, NULL, &matches) != 0) {
+		globfree(&matches);
+		return 0;
+	}
+	for (i = 0; i < matches.gl_pathc; i++) {
+		size_t length = strlen(matches.gl_pathv[i]);
+
+		if (!allow_partial && length >= 8 &&
+		    strcmp(matches.gl_pathv[i] + length - 8, ".partial") == 0)
+			continue;
+		assert(strlen(matches.gl_pathv[i]) < matchsz);
+		strcpy(match, matches.gl_pathv[i]);
+		found = 1;
+		break;
+	}
+	globfree(&matches);
+	return found;
+}
+
+/**
+ * wait_for_glob - Polls until a matching path appears.
+ *
+ * @pattern: Glob pattern to evaluate.
+ * @allow_partial: Whether names ending in `.partial` are acceptable.
+ * @match: Output buffer for the selected path.
+ * @matchsz: Size of the output buffer.
+ */
+static void
+wait_for_glob(const char *pattern, int allow_partial, char *match,
+    size_t matchsz)
+{
+	unsigned int attempt;
+
+	for (attempt = 0; attempt < 300; attempt++) {
+		if (find_glob(pattern, allow_partial, match, matchsz))
+			return;
+		usleep(10000);
+	}
+	assert(!"timed out waiting for retention output");
+}
+
+/**
+ * remove_glob - Removes every file matching a glob pattern.
+ *
+ * @pattern: Glob pattern to remove.
+ */
+static void
+remove_glob(const char *pattern)
+{
+	glob_t matches;
+	size_t i;
+
+	memset(&matches, 0, sizeof(matches));
+	if (glob(pattern, 0, NULL, &matches) != 0) {
+		globfree(&matches);
+		return;
+	}
+	for (i = 0; i < matches.gl_pathc; i++)
+		(void)unlink(matches.gl_pathv[i]);
+	globfree(&matches);
+}
+
+/**
+ * test_async_retention_success - Verifies collection continues while retention is delayed.
+ *
+ * The helper blocks until the test releases it. A second trace block must reach
+ * the new active file while the helper is still blocked, proving that rotation
+ * does not wait for retention work. Releasing the helper must publish the sealed
+ * generation only after it is complete.
+ */
+static void
+test_async_retention_success(void)
+{
+	char tempdir[] = "/tmp/fdr-harvest-retention-XXXXXX";
+	char tracepipe[FDR_PATH_MAX];
+	char logfile[FDR_PATH_MAX];
+	char helper[FDR_PATH_MAX];
+	char started[FDR_PATH_MAX];
+	char release[FDR_PATH_MAX];
+	char glob_pattern[FDR_PATH_MAX];
+	char retained[FDR_PATH_MAX];
+	char script[2048];
+	struct fdr_instance instance;
+	struct fdr_item item;
+	const char first[] = "generation-one\n";
+	const char second[] = "generation-two\n";
+	const char third[] = "x\n";
+	uint64_t failures_before;
+	pid_t child;
+	int writer;
+	int status;
+	int fd;
+
+	assert(mkdtemp(tempdir) != NULL);
+	assert(fdr_join_path(tracepipe, sizeof(tracepipe), tempdir,
+	    "trace_pipe") == 0);
+	assert(fdr_join_path(logfile, sizeof(logfile), tempdir, "output.log") == 0);
+	assert(fdr_join_path(helper, sizeof(helper), tempdir, "retain.sh") == 0);
+	assert(fdr_join_path(started, sizeof(started), tempdir,
+	    "helper.started") == 0);
+	assert(fdr_join_path(release, sizeof(release), tempdir,
+	    "helper.release") == 0);
+	assert(snprintf(glob_pattern, sizeof(glob_pattern),
+	    "%s.retained.*", logfile) < (int)sizeof(glob_pattern));
+	assert(mkfifo(tracepipe, 0600) == 0);
+	assert(snprintf(script, sizeof(script),
+	    "#!/bin/sh\n"
+	    "printf started > '%s'\n"
+	    "while [ ! -e '%s' ]; do sleep 0.01; done\n"
+	    "cat \"$1\" > \"$2\"\n",
+	    started, release) < (int)sizeof(script));
+	write_executable(helper, script);
+
+	fdr_instance_init(&instance);
+	assert(fdr_copy_field(instance.iname, sizeof(instance.iname),
+	    "fdr-unit-retention") == 0);
+	assert(fdr_copy_field(instance.dname, sizeof(instance.dname), tempdir) == 0);
+	assert(fdr_copy_field(instance.retention, sizeof(instance.retention),
+	    helper) == 0);
+	instance.minfree = 0;
+	instance.maxsize = strlen(first) + strlen(second) - 1;
+	memset(&item, 0, sizeof(item));
+	item.type = FDR_ITEM_SAVETO;
+	assert(fdr_copy_field(item.target, sizeof(item.target), logfile) == 0);
+	failures_before = fdr_metrics_load_u64(&fdr.metrics->retention_failures);
+
+	child = fork();
+	assert(child >= 0);
+	if (child == 0)
+		_exit(fdr_harvest_run(&instance, &item) == 0 ? 0 : 1);
+
+	writer = open(tracepipe, O_WRONLY | O_CLOEXEC);
+	assert(writer >= 0);
+	assert(fdr_write_all(writer, first, strlen(first)) == 0);
+	wait_for_size(logfile, (off_t)strlen(first));
+	assert(fdr_write_all(writer, second, strlen(second)) == 0);
+	wait_for_file(started);
+	wait_for_size(logfile, (off_t)strlen(second));
+
+	/* The helper is still blocked, but the collector must keep draining. */
+	assert(fdr_write_all(writer, third, strlen(third)) == 0);
+	wait_for_size(logfile, (off_t)(strlen(second) + strlen(third)));
+
+	fd = open(release, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	assert(fd >= 0);
+	assert(close(fd) == 0);
+	wait_for_glob(glob_pattern, 0, retained, sizeof(retained));
+	assert_file_content(retained, first);
+	assert(fdr_metrics_load_u64(&fdr.metrics->retention_failures) ==
+	    failures_before);
+
+	assert(close(writer) == 0);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+	assert(unlink(tracepipe) == 0);
+	assert(unlink(logfile) == 0);
+	assert(unlink(helper) == 0);
+	assert(unlink(started) == 0);
+	assert(unlink(release) == 0);
+	{
+		char cleanup[FDR_PATH_MAX];
+
+		assert(snprintf(cleanup, sizeof(cleanup), "%s.*", logfile) <
+		    (int)sizeof(cleanup));
+		remove_glob(cleanup);
+	}
+	assert(rmdir(tempdir) == 0);
+}
+
+/**
+ * test_async_retention_failure - Verifies helper failures stay visible and non-destructive.
+ *
+ * The helper writes a partial output and exits non-zero. FDR must increment the
+ * retention failure counter, leave the sealed generation and partial output
+ * distinguishable from completed output, and keep collecting new trace data.
+ */
+static void
+test_async_retention_failure(void)
+{
+	char tempdir[] = "/tmp/fdr-harvest-retainfail-XXXXXX";
+	char tracepipe[FDR_PATH_MAX];
+	char logfile[FDR_PATH_MAX];
+	char helper[FDR_PATH_MAX];
+	char pending_glob[FDR_PATH_MAX];
+	char partial_glob[FDR_PATH_MAX];
+	char pending[FDR_PATH_MAX];
+	char partial[FDR_PATH_MAX];
+	struct fdr_instance instance;
+	struct fdr_item item;
+	const char first[] = "generation-one\n";
+	const char second[] = "generation-two\n";
+	const char third[] = "x\n";
+	uint64_t failures_before;
+	uint64_t rotations_before;
+	pid_t child;
+	int writer;
+	int status;
+
+	assert(mkdtemp(tempdir) != NULL);
+	assert(fdr_join_path(tracepipe, sizeof(tracepipe), tempdir,
+	    "trace_pipe") == 0);
+	assert(fdr_join_path(logfile, sizeof(logfile), tempdir, "output.log") == 0);
+	assert(fdr_join_path(helper, sizeof(helper), tempdir, "retain.sh") == 0);
+	assert(snprintf(pending_glob, sizeof(pending_glob), "%s.pending.*",
+	    logfile) < (int)sizeof(pending_glob));
+	assert(snprintf(partial_glob, sizeof(partial_glob),
+	    "%s.retained.*.partial", logfile) < (int)sizeof(partial_glob));
+	assert(mkfifo(tracepipe, 0600) == 0);
+	write_executable(helper,
+	    "#!/bin/sh\n"
+	    "printf partial > \"$2\"\n"
+	    "exit 1\n");
+
+	fdr_instance_init(&instance);
+	assert(fdr_copy_field(instance.iname, sizeof(instance.iname),
+	    "fdr-unit-retainfail") == 0);
+	assert(fdr_copy_field(instance.dname, sizeof(instance.dname), tempdir) == 0);
+	assert(fdr_copy_field(instance.retention, sizeof(instance.retention),
+	    helper) == 0);
+	instance.minfree = 0;
+	instance.maxsize = strlen(first) + strlen(second) - 1;
+	memset(&item, 0, sizeof(item));
+	item.type = FDR_ITEM_SAVETO;
+	assert(fdr_copy_field(item.target, sizeof(item.target), logfile) == 0);
+	failures_before = fdr_metrics_load_u64(&fdr.metrics->retention_failures);
+	rotations_before = fdr_metrics_load_u64(&fdr.metrics->rotations);
+
+	child = fork();
+	assert(child >= 0);
+	if (child == 0)
+		_exit(fdr_harvest_run(&instance, &item) == 0 ? 0 : 1);
+
+	writer = open(tracepipe, O_WRONLY | O_CLOEXEC);
+	assert(writer >= 0);
+	assert(fdr_write_all(writer, first, strlen(first)) == 0);
+	wait_for_size(logfile, (off_t)strlen(first));
+	assert(fdr_write_all(writer, second, strlen(second)) == 0);
+	wait_for_counter(&fdr.metrics->retention_failures, failures_before + 1);
+	wait_for_size(logfile, (off_t)strlen(second));
+	assert(fdr_metrics_load_u64(&fdr.metrics->rotations) >=
+	    rotations_before + 1);
+
+	wait_for_glob(pending_glob, 1, pending, sizeof(pending));
+	wait_for_glob(partial_glob, 1, partial, sizeof(partial));
+	assert_file_content(partial, "partial");
+	assert_file_content(pending, first);
+
+	/* Collection must continue after a retention failure. */
+	assert(fdr_write_all(writer, third, strlen(third)) == 0);
+	wait_for_size(logfile, (off_t)(strlen(second) + strlen(third)));
+
+	assert(close(writer) == 0);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+	assert(unlink(tracepipe) == 0);
+	assert(unlink(logfile) == 0);
+	assert(unlink(helper) == 0);
+	assert(unlink(pending) == 0);
+	assert(unlink(partial) == 0);
+	assert(rmdir(tempdir) == 0);
 }
 
 /**
@@ -444,6 +743,8 @@ main(void)
 	/* --- Test Suite 4 & 5: Asynchronous Reopening & Failure Recovery --- */
 	test_signal_reopen();
 	test_rotation_failure_recovery();
+	test_async_retention_success();
+	test_async_retention_failure();
 
 	fdr_metrics_destroy();
 

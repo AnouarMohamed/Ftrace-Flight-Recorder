@@ -37,6 +37,7 @@ runtime.
 | `disable subsystem/event` | No | Disables one event or a complete subsystem |
 | `minfree percentage` | No | Drops output data when destination free space is too low |
 | `saveto absolute-path [maximum-size]` | No | Continuously persists `trace_pipe` to a file |
+| `retention absolute-helper-path` | No | Runs an asynchronous post-rotation retention helper |
 
 ### `instance name [buffer-size]`
 
@@ -153,9 +154,12 @@ Without a maximum size, the file is unbounded except for `minfree` protection.
 With a maximum size, FDR rotates before writing a block that would cross the
 limit:
 
-1. If `/etc/logrotate.d/<instance>` is a regular file, FDR runs
-   `/usr/sbin/logrotate -f` with that policy.
-2. Otherwise FDR renames the current file to `<path>.1` and opens a new file.
+1. If a `retention` helper is configured, FDR atomically renames the full
+   generation to `<path>.pending.<pid>.<sequence>`, opens and validates a new
+   mode-0600 `<path>`, and resumes collection before starting the helper.
+2. Otherwise, if `/etc/logrotate.d/<instance>` is a regular file, FDR runs
+   `/usr/sbin/logrotate -f` with that policy and waits for it to finish.
+3. Otherwise FDR renames the current file to `<path>.1` and opens a new file.
 
 The fallback retains one previous generation. A failed rotation drops the
 current trace block, increments `fdr_bytes_dropped_total` and
@@ -164,6 +168,37 @@ accounted as dropped, but FDR paces expensive rotation retries to once per
 second. If the underlying permission or storage problem recovers, a later retry
 rotates successfully and collection resumes; readiness remains latched false
 because evidence was already lost.
+
+### `retention absolute-helper-path`
+
+Runs an optional executable after a successful bounded rotation, off the trace
+ingestion path:
+
+```text
+retention /usr/local/bin/fdr-retain
+```
+
+The helper is started after the sealed generation exists and the new active
+file is already open. It receives three arguments:
+
+```text
+helper <sealed-generation> <partial-output> <active-capture>
+```
+
+The helper must write a complete retained artifact to the partial output path
+and exit 0. FDR then verifies that the partial path is a regular file and
+atomically renames it to `<path>.retained.<pid>.<sequence>`. On success, FDR
+also removes the sealed source. If the helper exits non-zero, times out by its
+own policy, or leaves an invalid partial file, FDR increments
+`fdr_retention_failures_total`, logs a warning, and leaves the sealed generation
+and any partial output in place for inspection. Partial output is never
+published under a completed retained name.
+
+The helper is invoked directly without a shell, must use an absolute path
+without `..` components, and is expected to enforce its own retention policy for
+older `<path>.retained.*` files. When `retention` is set, it takes precedence
+over `/etc/logrotate.d/<instance>` for bounded rotations. External logrotate
+policies remain compatible when `retention` is not configured.
 
 ### Setup-only instances
 
