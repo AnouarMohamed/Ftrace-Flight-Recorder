@@ -58,11 +58,14 @@ stat -f -c '%T' /sys/kernel/tracing
 mount | grep tracefs
 ~~~
 
-To use a different image:
+The base pins the tested image by digest. See the
+[release image table](../../README.md#release-images-and-rollback) before
+changing it. To use a different image:
 
 ~~~sh
 cd deploy/kubernetes
-kustomize edit set image fdr=registry.example.com/observability/fdr:v1.4.0
+DIGEST="sha256:REPLACE_WITH_IMAGE_DIGEST"
+kustomize edit set image fdr=registry.example.com/observability/fdr@"$DIGEST"
 kubectl apply -k .
 ~~~
 

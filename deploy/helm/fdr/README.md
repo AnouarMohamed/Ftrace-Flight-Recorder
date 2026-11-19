@@ -11,6 +11,10 @@ helm upgrade --install fdr deploy/helm/fdr \
   --namespace fdr-system --create-namespace
 ~~~
 
+When `image.digest` is set, it takes precedence over `image.tag`. The default
+digest and digest-based rollback commands are in the
+[release image table](../../../README.md#release-images-and-rollback).
+
 The chart uses the normal Helm release namespace; it does not create or manage a
 Namespace resource itself.
 
@@ -46,6 +50,7 @@ automatically roll the DaemonSet.
 image:
   repository: ghcr.io/anouarmohamed/fdr-k8s
   tag: v1.4.0
+  digest: sha256:9bf9605a1d3e896576185f42de109865778b89f7bc565aa66ecf93aaa662453c
 
 http:
   enabled: true

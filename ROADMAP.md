@@ -96,6 +96,10 @@ Acceptance criteria:
 - the release documentation records the image digest;
 - rollback instructions use an immutable previous version.
 
+The base manifests and Helm defaults pin the tested image digest, the release
+digest and rollback commands are recorded in the README, and the publish
+workflow writes to the stable `fdr-k8s` registry package.
+
 ### 1.2 Make node selection intentional
 
 Add `kubernetes.io/os: linux` to the default node selector. Do not tolerate all

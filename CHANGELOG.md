@@ -41,7 +41,8 @@ All notable changes to this project are documented here. The format follows
 
 - Reject parent-directory components in `saveto` paths to prevent configuration-driven path traversal.
 - Pin Kubernetes and Helm deployment images to the tested application release
-  instead of a floating tag.
+  digest instead of a mutable tag, and keep publishes on the stable `fdr-k8s`
+  registry package.
 - Restrict default scheduling to Linux nodes, require explicit tolerations,
   and remove the default CPU limit to avoid collector throttling.
 - Make the host `/lib/modules` mount opt-in for configurations that actually
