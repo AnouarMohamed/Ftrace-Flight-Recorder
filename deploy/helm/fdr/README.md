@@ -75,9 +75,11 @@ configurable through <code>resources</code>.
 
 ## Tracefs preflight
 
-Before the daemon starts, an init container verifies that the configured host
-path is tracefs and that its <code>instances</code> directory exists and is
-writable. Inspect a failed preflight with:
+Before the daemon starts, the init container verifies that the configured host
+path is a writable tracefs mount, or a legacy debugfs tracing path, with an
+<code>instances</code> directory. It also validates the configuration syntax,
+loads configured modules, and checks every configured event on the node.
+Inspect a failed preflight with:
 
 ~~~sh
 kubectl -n fdr-system logs POD_NAME -c tracefs-preflight
@@ -117,10 +119,10 @@ modules:
   hostPath: /lib/modules
 ~~~
 
-This does not remove the privileged security boundary; it only avoids exposing
-host modules to deployments that do not use them. See the
-[security guide](../../../SECURITY.md#reduced-module-exposure) for the trust
-model, namespace-scoped RBAC, and Pod Security admission guidance.
+The preflight init container mounts the same module tree when this is enabled,
+so it can load a module before checking dependent events. This does not remove
+the privileged security boundary; it only avoids exposing host modules to
+deployments that do not use them.
 
 ## Prometheus, alerts, Grafana, and network policy
 

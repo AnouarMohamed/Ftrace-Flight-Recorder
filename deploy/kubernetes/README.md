@@ -45,9 +45,11 @@ updates the pod template and rolls the DaemonSet automatically. Readiness stays
 false if a configured probe cannot be applied. A persistent collector failure
 terminates the container so Kubernetes restarts it.
 
-Before startup, the <code>tracefs-preflight</code> init container verifies that
-the hostPath is a writable tracefs mount with an <code>instances</code>
-directory. Diagnose a failed preflight with:
+Before startup, the <code>tracefs-preflight</code> init container checks that the
+hostPath is a writable tracefs mount, or a legacy debugfs tracing path, with an
+<code>instances</code> directory. It also validates the configuration syntax,
+loads configured modules, and verifies every configured event on the node.
+Diagnose a failed preflight with:
 
 ~~~sh
 kubectl -n fdr-system get pods
@@ -75,6 +77,12 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: tracefs-preflight
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
       containers:
         - name: fdrd
           volumeMounts:
@@ -88,8 +96,10 @@ spec:
             type: Directory
 ~~~
 
-Reference that patch from the overlay's <code>kustomization.yaml</code>; do not
-add it to the shared base unless every deployment requires module loading.
+The init-container mount lets preflight load the module before checking events
+that depend on it. Reference that patch from the overlay's
+<code>kustomization.yaml</code>; do not add it to the shared base unless every
+deployment requires module loading.
 
 ## Observe
 

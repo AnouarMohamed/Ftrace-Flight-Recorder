@@ -58,7 +58,8 @@ Implementation status in the current development tree:
 - [x] Pin the base Helm and Kustomize images to <code>v1.4.0</code>.
 - [x] Select Linux nodes and require tolerations to be explicit.
 - [x] Remove the unproven default CPU limit.
-- [x] Add a tracefs type, directory, and write-access preflight.
+- [x] Add a tracefs preflight that checks mount type, writability, configuration
+      syntax, modules, events, and legacy debugfs paths.
 - [x] Make host module exposure opt-in in Helm and omit it from the base
       Kustomize deployment.
 - [x] Add optional PodMonitor and ingress NetworkPolicy templates.
@@ -142,6 +143,9 @@ The pod must fail with a specific, actionable message. Support a configurable
 path for distributions that expose tracing through
 `/sys/kernel/debug/tracing`. Do not silently mount or change the host unless the
 administrator explicitly enables that behavior.
+
+Implemented by `deploy/kubernetes/preflight.sh`, invoked from both the base
+DaemonSet and the Helm chart before the collector starts.
 
 Acceptance criteria:
 

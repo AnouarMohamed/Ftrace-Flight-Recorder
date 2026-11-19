@@ -86,7 +86,8 @@ sudo fdrd -n -c /etc/fdr.d
 
 This validation catches grammar and value errors. It cannot prove that a
 tracepoint or filter exists on the running kernel because `-n` deliberately
-does not access tracefs.
+does not access tracefs. Kubernetes deployments run the preflight script to
+check module and event availability on each node before startup.
 
 Read the [configuration reference](configuration.md) before enabling additional
 events or changing buffer and file sizes.

@@ -12,6 +12,7 @@ FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec4
 RUN apk add --no-cache curl kmod logrotate \
     && install -d -m 0755 /etc/fdr.d /var/lib/logrotate /var/log/fdr
 COPY --from=build /src/fdrd /usr/sbin/fdrd
+COPY deploy/kubernetes/preflight.sh /usr/local/bin/tracefs-preflight
 EXPOSE 9119
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

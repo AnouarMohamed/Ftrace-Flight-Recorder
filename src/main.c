@@ -175,6 +175,7 @@ main(int argc, char **argv)
 	/* Allocate shared metrics, install supervisor signals, and spawn workers */
 	fdr_metrics_init();
 	fdr_metrics_store_int(&fdr.metrics->instances, fdr.instance_count);
+	fdr_metrics_update_trace_buffer();
 	fdr_process_install_handlers();
 	if (fdr_process_start_all() != 0) {
 		fdr_process_cleanup_instances();

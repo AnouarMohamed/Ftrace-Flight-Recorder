@@ -102,6 +102,11 @@ counters are cumulative for the current parent-process lifetime.
 | Metric | Type | Interpretation and response |
 |---|---|---|
 | `fdr_bytes_written_total` | Counter | Bytes successfully appended. Useful for volume, not proof of completeness. |
+| `fdr_read_calls_total` | Counter | Successful collector reads from `trace_pipe`. Pair with `fdr_read_bytes_total` to derive bytes per read. |
+| `fdr_read_bytes_total` | Counter | Bytes returned by successful collector reads, including bytes later dropped by protection. |
+| `fdr_write_calls_total` | Counter | Logical collector write attempts. Pair with `fdr_bytes_written_total` to derive bytes per write. |
+| `fdr_space_checks_total` | Counter | Filesystem free-space checks performed. Useful for validating check scheduling. |
+| `fdr_rotation_duration_seconds_total` | Counter | Cumulative time spent performing rotations, including failed attempts. |
 | `fdr_bytes_dropped_total` | Counter | Bytes discarded by free-space protection or a failed rotation. Any increase means incomplete file evidence; investigate disk capacity and rotation. |
 | `fdr_rotations_total` | Counter | Successful bounded-file rotations. Confirm retention behaves as intended. |
 | `fdr_rotation_failures_total` | Counter | Rotation attempts that failed before a retry. An increase makes readiness false; inspect permissions, free space, and logrotate. |
@@ -111,6 +116,8 @@ counters are cumulative for the current parent-process lifetime.
 | `fdr_trace_overruns_total` | Counter | Kernel ring-buffer overruns observed across instances and CPUs. Lost events cannot be recovered. |
 | `fdr_trace_dropped_events_total` | Counter | Events the kernel reports as dropped. Lost events cannot be recovered. |
 | `fdr_trace_commit_overruns_total` | Counter | Kernel commit overruns observed in tracefs statistics. Treat as incomplete evidence. |
+| `fdr_trace_buffer_bytes` | Gauge | Explicitly configured trace-buffer bytes across online CPUs, refreshed at startup, reload, and every five seconds. Instances using the kernel default buffer are not estimated. |
+| `fdr_collector_info` | Gauge | Selected collector backend and fallback mode. The current backend is `text` with `fallback="none"`. |
 | `fdr_instances` | Gauge | Number of configured tracefs instances owned by the parent. |
 | `fdr_workers_alive` | Gauge | Workers currently alive. Persistent `saveto` instances normally have one worker each. |
 | `fdr_ready` | Gauge | `1` when ready, `0` after a known integrity or setup failure. |
@@ -127,6 +134,10 @@ increase(fdr_probe_failures_total[5m]) > 0
 increase(fdr_trace_overruns_total[5m])
   + increase(fdr_trace_dropped_events_total[5m])
   + increase(fdr_trace_commit_overruns_total[5m]) > 0
+rate(fdr_read_bytes_total[5m]) / rate(fdr_read_calls_total[5m])
+rate(fdr_bytes_written_total[5m]) / rate(fdr_write_calls_total[5m])
+rate(fdr_rotation_duration_seconds_total[5m])
+fdr_trace_buffer_bytes
 ```
 
 The Helm chart can install a `PodMonitor`, six alert rules, and a Grafana
@@ -248,7 +259,7 @@ can enforce timeouts and record the exit.
 | Pod Security or admission rejection | Namespace enforces `restricted`, or a webhook denies privileged pods | Read the apply warning, namespace events, and DaemonSet description; use a dedicated reviewed namespace policy |
 | `Forbidden` during rollout | Caller lacks namespace-scoped DaemonSet or ConfigMap permissions | Compare the caller's Role and RoleBinding with the [security guide](../SECURITY.md#kubernetes-rbac) |
 | Tracefs or `instances` missing | Tracefs is not mounted or the wrong root was selected | Run `findmnt -T /sys/kernel/tracing`; inspect `-d`; review host policy before mounting |
-| Kubernetes preflight fails | HostPath is not writable tracefs or lacks `instances` | Read the `tracefs-preflight` init-container log and verify the node mount |
+| Kubernetes preflight fails | HostPath is not writable tracefs or lacks `instances`, or config syntax, module, or event is invalid on the node | Read the `tracefs-preflight` log, verify the mount and event on every selected node, and run `fdrd -n -c /etc/fdr.d` |
 | `/readyz` returns 503 | Probe, collector, write, or trace-loss failure | Compare counters, inspect logs, and preserve evidence before resetting state |
 | Probe failures increase | Event is absent, filter is invalid, module failed, or access was denied | Inspect the running kernel's event `format` and `filter`; validate on every supported kernel |
 | Trace-loss counters increase | Event rate exceeded buffer or collector capacity | Preserve evidence; narrow probes, enlarge per-CPU buffers, remove CPU throttling, or improve storage after representative testing |

@@ -82,12 +82,23 @@ jobs:
           grep -q 'kind: PrometheusRule' /tmp/fdr-helm-optional.yaml
           grep -q 'fdr-overview.json:' /tmp/fdr-helm-optional.yaml
           grep -q 'kind: NetworkPolicy' /tmp/fdr-helm-optional.yaml
-          grep -q 'mountPath: /lib/modules' /tmp/fdr-helm-optional.yaml
+          if [ "$(grep -c 'mountPath: /lib/modules' /tmp/fdr-helm-optional.yaml)" -lt 2 ]; then
+            echo 'Helm optional render does not mount modules in preflight and fdrd' >&2
+            exit 1
+          fi
+          if [ "$(grep -c 'mountPath: /etc/fdr.d' /tmp/fdr-helm-optional.yaml)" -lt 2 ]; then
+            echo 'Helm preflight container is missing the configuration mount' >&2
+            exit 1
+          fi
+          grep -q '/usr/local/bin/tracefs-preflight' /tmp/fdr-helm-optional.yaml
+          grep -q -- '--config' /tmp/fdr-helm-optional.yaml
           jq empty deploy/helm/fdr/dashboards/fdr-overview.json
 
       - name: Validate Kind lab assets
         run: |
           sh -n deploy/kind/lab.sh
+          sh -n tests/kernel-smoke.sh
+          sh -n tests/kubernetes-smoke.sh
           helm template fdr-lab deploy/helm/fdr --namespace fdr-lab \
             --values deploy/kind/fdr-values.yaml \
             > /tmp/fdr-kind-lab.yaml
@@ -107,6 +118,10 @@ jobs:
             exit 1
           fi
           grep -q 'name: tracefs-preflight' /tmp/fdr-kustomize.yaml
-          grep -q 'automountServiceAccountToken: false' /tmp/fdr-kustomize.yaml
-          grep -q 'privileged: true' /tmp/fdr-kustomize.yaml
+          grep -q '/usr/local/bin/tracefs-preflight' /tmp/fdr-kustomize.yaml
+          grep -q -- '--config' /tmp/fdr-kustomize.yaml
+          if [ "$(grep -c 'mountPath: /etc/fdr.d' /tmp/fdr-kustomize.yaml)" -lt 2 ]; then
+            echo 'Kustomize preflight container is missing the configuration mount' >&2
+            exit 1
+          fi
           grep -q 'kubernetes.io/os: linux' /tmp/fdr-kustomize.yaml
