@@ -69,6 +69,8 @@ jobs:
             echo 'default Helm output exposes host modules' >&2
             exit 1
           fi
+          grep -q 'automountServiceAccountToken: false' /tmp/fdr-helm-default.yaml
+          grep -q 'privileged: true' /tmp/fdr-helm-default.yaml
           helm template fdr deploy/helm/fdr --namespace fdr-system \
             --set modules.enabled=true \
             --set monitoring.podMonitor.enabled=true \
