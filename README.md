@@ -140,9 +140,10 @@ default:
 - `/metrics` exposes cumulative Prometheus counters and current gauges.
 
 Readiness becomes false after probe failures, persistent collector failures,
-write failures, or newly observed kernel trace loss. A successful configuration
-reload or process restart returns readiness to a fresh state, but cannot recover
-events that were already lost. Preserve the current capture and metrics before
+write failures, newly observed kernel trace loss, or three consecutive failed
+kernel loss-sampling attempts. A successful configuration reload or process
+restart returns readiness to a fresh state, but cannot recover events that were
+already lost. Preserve the current capture and metrics before
 reloading during an incident.
 
 See the [operations guide](docs/operations.md) for the complete metric

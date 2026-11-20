@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
   Prometheus counters for overruns, dropped events, and commit overruns.
 - Make readiness degrade when the kernel reports new trace loss so a live
   recorder cannot silently present known-incomplete evidence as ready.
+- Detect failed kernel loss sampling, export `fdr_loss_sampling_ok` and
+  `fdr_loss_sampling_failures_total`, warn without flooding logs, and latch
+  readiness false after three consecutive failed samples.
 - Add optional Helm `PodMonitor`, six evidence-integrity alert rules, a compact
   Grafana dashboard, and an ingress `NetworkPolicy`.
 - Add a tracefs preflight init container that validates the mount type and
@@ -101,6 +104,9 @@ All notable changes to this project are documented here. The format follows
   all four CPUs with zero trace loss. Raw collector CPU was 0.09 seconds versus
   1.65 seconds for CPU-local text, but raw remains experimental because the
   output is not yet a standard, decoder-qualified `trace.dat` archive.
+- Add loss-sampling tests for format-incompatible and unreadable stats,
+  persistent-failure readiness degradation, gauge recovery, and the distinction
+  between no observed loss and unavailable sampling.
 
 ## [1.4.0] - 2026-08-23
 

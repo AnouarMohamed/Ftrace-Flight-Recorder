@@ -56,8 +56,9 @@ file copy test.
 ### readiness
 
 The evidence-integrity state. A live FDR process may be unready because a probe
-failed, a collector failed, storage discarded output, a file write failed, or
-the kernel reported trace loss. Always inspect readiness as well as liveness.
+failed, a collector failed, storage discarded output, a file write failed, the
+kernel reported trace loss, or kernel loss sampling failed persistently. Always
+inspect readiness as well as liveness.
 
 ### trace overrun
 

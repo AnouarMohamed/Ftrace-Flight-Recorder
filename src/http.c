@@ -270,6 +270,12 @@ fdr_http_handle(int cfd)
 		    "# HELP fdr_trace_commit_overruns_total Nested writes lost by tracefs\n"
 		    "# TYPE fdr_trace_commit_overruns_total counter\n"
 		    "fdr_trace_commit_overruns_total %" PRIu64 "\n"
+		    "# HELP fdr_loss_sampling_failures_total Failed per-instance kernel trace-loss samples\n"
+		    "# TYPE fdr_loss_sampling_failures_total counter\n"
+		    "fdr_loss_sampling_failures_total %" PRIu64 "\n"
+		    "# HELP fdr_loss_sampling_ok 1 when the latest loss-sampling cycle succeeded for every capture instance\n"
+		    "# TYPE fdr_loss_sampling_ok gauge\n"
+		    "fdr_loss_sampling_ok %d\n"
 		    "# HELP fdr_trace_buffer_bytes Configured trace buffer bytes across online CPUs\n"
 		    "# TYPE fdr_trace_buffer_bytes gauge\n"
 		    "fdr_trace_buffer_bytes %" PRIu64 "\n"
@@ -301,6 +307,8 @@ fdr_http_handle(int cfd)
 		    m ? fdr_metrics_load_u64(&m->trace_overruns) : 0,
 		    m ? fdr_metrics_load_u64(&m->trace_dropped_events) : 0,
 		    m ? fdr_metrics_load_u64(&m->trace_commit_overruns) : 0,
+		    m ? fdr_metrics_load_u64(&m->loss_sampling_failures) : 0,
+		    m ? fdr_metrics_load_int(&m->loss_sampling_ok) : 0,
 		    m ? fdr_metrics_load_u64(&m->trace_buffer_bytes) : 0,
 		    m ? fdr_metrics_load_int(&m->instances) : 0,
 		    m ? fdr_metrics_load_int(&m->workers_alive) : 0,
